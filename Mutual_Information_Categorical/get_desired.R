@@ -96,17 +96,22 @@ gen_number_1 <- function(x, tot_sum) {
   return(table)
 }
 
-# Function to perform simulated annealing
-simul_anneal <- function(initial_table, obj, gen_fn, tot_sum, max_n = 5000, temp = 10, maxim = T) {
+# Function to perform simulated annealing with stopping condition for target entropy
+simul_anneal <- function(initial_table, obj, gen_fn, tot_sum, target, max_n = 5000, temp = 10, maxim = T, readj = F) {
   best <- initial_table
   best_eval <- obj(best)
   curr <- best
   curr_eval <- best_eval
   n <- 0
   mutual_info_history <- data.frame(iteration = 0, mutual_info = curr_eval, 
-                                    type = if (maxim) "Maximizing" else "Minimizing")
+                                    type = ifelse(readj, "Readjusting", ifelse(maxim, "Maximizing", "Minimizing")))
   
   while (n < max_n) {
+    if ((maxim && curr_eval >= target) || (!maxim && curr_eval <= target)) {
+      print(paste("Target entropy reached:", curr_eval))
+      break
+    }
+    
     cand <- gen_fn(curr, tot_sum)
     cand_eval <- obj(cand)
     if (maxim){
@@ -122,7 +127,7 @@ simul_anneal <- function(initial_table, obj, gen_fn, tot_sum, max_n = 5000, temp
       }
       diff <- -cand_eval + curr_eval
     }
-
+    
     t <- temp / (n + 1)
     metropolis <- exp(diff / t)
     if (diff > 0 || runif(1) < metropolis) {
@@ -130,11 +135,13 @@ simul_anneal <- function(initial_table, obj, gen_fn, tot_sum, max_n = 5000, temp
       curr_eval <- cand_eval
     }
     n <- n + 1
-    mutual_info_history <- rbind(mutual_info_history, data.frame(iteration = n, mutual_info = curr_eval, type = if (maxim) "Maximizing" else "Minimizing"))
+    mutual_info_history <- rbind(mutual_info_history, data.frame(iteration = n, mutual_info = curr_eval, 
+                                                                 type =  ifelse(readj, "Readjusting", ifelse(maxim, "Maximizing", "Minimizing"))))
   }
   return(list(best, best_eval, n, mutual_info_history))
 }
 
+# Sinkhorn algorithm function
 sinkhorn_algorithm <- function(initial_table, obj, max_iter = 500, tolerance = 1e-5) {
   S <- sum(initial_table)
   S_r <- rowSums(initial_table)
@@ -161,128 +168,88 @@ sinkhorn_algorithm <- function(initial_table, obj, max_iter = 500, tolerance = 1
     
     # Convergence check
     updated_table <- t(diag(as.vector(alpha)) %*% ones_mat %*% diag(as.vector(beta)))
-    # updated_table <-  round_vals(updated_table, initial_table)
     curr_eval <- obj(updated_table)
     
     mutual_info_history <- rbind(mutual_info_history, data.frame(iteration = iter, mutual_info = curr_eval, 
                                                                  type = "Minimizing"))
-    
   }
   updated_table <- t(diag(as.vector(alpha)) %*% ones_mat %*% diag(as.vector(beta)))
-  # updated_table <-  round_vals(updated_table, initial_table)
   new_mut <- obj(updated_table)
   return(list(updated_table, new_mut, iter, mutual_info_history))
 }
 
-round_vals <- function(final, orig){
-  rounded_final <<- final
-  table <- orig
-  nrows <- nrow(table)
-  ncols <- ncol(table)
-  for (i in 1:(nrows - 1)){
-    for (j in 1:(ncols - 1)){
-      delta <- table[i, j] - round(final[i, j])
-      table[i, j] <- table[i, j] - delta
-      table[i+1, j+1] <- table[i+1, j+1]- delta
-      table[i, j+1] <- table[i, j+1] + delta
-      table[i+1, j] <- table[i+1, j] + delta
-    }
-  }
-  return(table)
-}
-
-
-# Function to modify the dataframe and calculate new mutual information
-new_mutual_cols <- function(df, max_n = 10000, min_inf = 0.5) {
+# Function to solve entropy by adjusting mutual information
+solve_entropy <- function(df, target, max_n = 10000, epsilon = 0.001) {
   y_name <- colnames(df)[1]
   x_name <- colnames(df)[2]
   table <- as.matrix(table(df[, c(y_name, x_name)]))
   table_sum <- sum(table)
   table <- table/table_sum # normalize
-  x_index <- rownames(table)
-  y_index <- colnames(table)
-  rowsum_old <- rowSums(table)
-  colsum_old <- colSums(table)
   old_mut <- MutInf(table)
   
-  # MAX 
-  gen_fn <- gen_number_max
+  # Step 1: Find range of entropy values
+  
+  # Max Entropy (Maximizing mutual information)
   result_max <- simul_anneal(table, obj = MutInf, gen_fn = gen_number_max, 
-                             tot_sum = table_sum, max_n = max_n, maxim = T)
-  table_max <- result_max[[1]]
+                             tot_sum = table_sum, target = Inf, max_n = max_n, maxim = TRUE)
   new_mut_max <- result_max[[2]]
-  rowsum_new_max <- rowSums(table_max)
-  colsum_new_max <- colSums(table_max)
-  print(sum(abs(rowsum_old - rowsum_new_max)) + sum(abs(colsum_old - colsum_new_max)))
-  max_mutual_info_history <- result_max[[4]]
   
-  # MIN 
-  gen_fn <- gen_number_min
-  result_min <- simul_anneal(table, obj = MutInf, gen_fn = gen_number_min, 
-                             tot_sum = table_sum, max_n = max_n, maxim = F)
-  table_min <- result_min[[1]]
-  new_mut_min <- result_min[[2]]
-  rowsum_new_min <- rowSums(table_min)
-  colsum_new_min <- colSums(table_min)
-  print(sum(abs(rowsum_old - rowsum_new_min)) + sum(abs(colsum_old - colsum_new_min)))
-  min_mutual_info_history <- result_min[[4]]
-  
-  # MAX using gen_number_1
-  gen_fn <- gen_number_1
-  result_max1 <- simul_anneal(table, obj = MutInf, gen_fn = gen_number_1, 
-                              tot_sum = table_sum, max_n = max_n, maxim = TRUE)
-  table_max1 <- result_max1[[1]]
-  new_mut_max1 <- result_max1[[2]]
-  rowsum_new_max1 <- rowSums(table_max1)
-  colsum_new_max1 <- colSums(table_max1)
-  print(sum(abs(rowsum_old - rowsum_new_max1)) + sum(abs(colsum_old - colsum_new_max1)))
-  max1_mutual_info_history <- result_max1[[4]]
-  
-  # MIN using gen_number_1
-  gen_fn <- gen_number_1
-  result_min1 <- simul_anneal(table, obj = MutInf, gen_fn = gen_number_1, 
-                              tot_sum = table_sum, max_n = max_n, maxim = FALSE)
-  table_min1 <- result_min1[[1]]
-  new_mut_min1 <- result_min1[[2]]
-  rowsum_new_min1 <- rowSums(table_min1)
-  colsum_new_min1 <- colSums(table_min1)
-  print(sum(abs(rowsum_old - rowsum_new_min1)) + sum(abs(colsum_old - colsum_new_min1)))
-  min1_mutual_info_history <- result_min1[[4]]
-  
-  # SINKHORN 
+  # Min Entropy (Minimizing mutual information)
   result_min_sk <- sinkhorn_algorithm(table, obj = MutInf, max_iter = max_n)
-  table_min_sk <- result_min_sk[[1]]
-  new_mut_min_sk <- result_min_sk[[2]]
-  rowsum_new_min_sk <- rowSums(table_min_sk)
-  colsum_new_min_sk <- colSums(table_min_sk)
-  print(sum(abs(rowsum_old - rowsum_new_min_sk))  +  sum(abs(colsum_old - colsum_new_min_sk)))
-  min_mutual_info_history_sk <- result_min_sk[[4]]
+  new_mut_min <- result_min_sk[[2]]
   
+  # Print the max and min entropy values
+  print(paste("Current Entropy:", old_mut))
+  print(paste("Min Entropy:", new_mut_min))
+  print(paste("Max Entropy:", new_mut_max))
   
-  mutual_info_history <- rbind(max_mutual_info_history, min_mutual_info_history)
-  mutual_info_history$method = "Improved"
-  mutual1_info_history <- rbind(max1_mutual_info_history, min1_mutual_info_history)
-  mutual1_info_history$method = "Stepwise"
-  min_mutual_info_history_sk$method = "Sinkhorn"
-  df_stat = rbind(mutual_info_history, mutual1_info_history, min_mutual_info_history_sk)
+  # Step 2: Check if the target entropy is within the range
+  if (target < new_mut_min || target > new_mut_max) {
+    print("Target entropy is out of range. Please choose a value between the min and max entropy.")
+    return(NULL)
+  }
   
+  # Step 3: Adjust mutual information to reach the target entropy
+  if (target > old_mut) {
+    gen_fn <- gen_number_max
+    result <- simul_anneal(table, obj = MutInf, gen_fn = gen_fn, 
+                           tot_sum = table_sum, target = target, max_n = max_n, maxim = TRUE)
+    final_hist = result[[4]]
+    final_table <- result[[1]]
+    final_mut <- result[[2]]
+    if (result[[2]] - target > epsilon) {
+      print("Target exceeded. Re-adjusting with gen_number_1 to decrease.")
+      result_sub <- simul_anneal(result[[1]], obj = MutInf, gen_fn = gen_number_1, 
+                             tot_sum = table_sum, target = target, max_n = max_n, 
+                             maxim = FALSE, readj = T)
+      result_sub[[4]]$iteration = result_sub[[4]]$iteration + max(final_hist$iteration)
+      final_hist = rbind(result_sub[[4]], final_hist)
+      final_table <- result_sub[[1]]
+      final_mut <- result_sub[[2]]
+    }
+    
+  } else {
+    gen_fn <- gen_number_min
+    result <- simul_anneal(table, obj = MutInf, gen_fn = gen_fn, 
+                           tot_sum = table_sum, target = target, max_n = max_n, maxim = FALSE)
+    final_hist = result[[4]]
+    final_table <- result[[1]]
+    final_mut <- result[[2]]
+    if (target - result[[2]] > epsilon ) {
+      print("Target crossed. Re-adjusting with gen_number_1 to increase.")
+      result_sub <- simul_anneal(result[[1]], obj = MutInf, gen_fn = gen_number_1, 
+                             tot_sum = table_sum, target = target, max_n = max_n, 
+                             maxim = TRUE, readj = T)
+      result_sub[[4]]$iteration = result_sub[[4]]$iteration + max(final_hist$iteration)
+      final_hist = rbind(result_sub[[4]], final_hist)
+      final_table <- result_sub[[1]]
+      final_mut <- result_sub[[2]]
+    }
+  }
   
-  print("Old Table:")
-  print(table)
-  print(paste("Old Mutual Information:", old_mut))
-  # print("New Max Table:")
-  # print(table_max)
-  print(paste("Max Mutual Information:", new_mut_max))
-  # print("New Min Table:")
-  # print(table_min)
-  print(paste("Min Mutual Information:", new_mut_min))
-  # print("New Sinkhorn Min Table:")
-  # print(table_min_sk)
-  print(paste("Min Sinkhorn Mutual Information:", new_mut_min_sk))
-  
-  return(list(old_mut = old_mut, new_mut_max = new_mut_max, new_mut_min = new_mut_min, 
-              table = table, table_min = table_min, table_max = table_max,table_min_sk = table_min_sk,
-              df_stat = df_stat))
+  print(paste("Final Mutual Information:", final_mut))
+  return(list(final_table = final_table, history = final_hist,
+              max_mut = new_mut_max, min_mut = new_mut_min))
 }
 
 # Example usage
@@ -291,28 +258,43 @@ df <- data.frame(
   x = sample(str_c("Categ", 1:50), 10000, replace = TRUE),
   y = sample(str_c("Categ", 10:50), 10000, replace = TRUE)
 )
-
-
 # df <- data.frame(
 #   x = sample(c(rep("b", 50), rep("a", 25)), 75),
 #   y = sample(c(rep("b", 25), rep("a", 50)), 75)
 # )
 
-# Find range of mutual information
-res <- new_mutual_cols(df, max_n = 50000)
-res$df_stat %>%
+set.seed(33)
+df <- data.frame(
+  x = sample(str_c("Categ", 1:4), 10000, replace = TRUE),
+  y = sample(str_c("Categ", 10:4), 10000, replace = TRUE)
+)
+
+target_entropy <- 1.4 # Set your target entropy here
+res <- solve_entropy(df, target_entropy)
+
+# Output the results
+final_table <- res$final_table
+print(final_table)
+a = res$history
+res$history %>%
   ggplot(aes(x = iteration, y = mutual_info, color = type)) +
   geom_line() +
   labs(title = "Mutual Information Over Iterations", x = "Iteration", y = "Mutual Information") +
   theme_minimal() +
-  facet_wrap(~method) +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 60))
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 60)) +
+  xlim(c(0, 1.5 * max(res$history$iteration))) + 
+  ylim(c(res$min_mut - 1, res$max_mut + 1)) +
+  geom_hline(yintercept = res$min_mut, linetype = "dashed", color = "black") +
+  geom_hline(yintercept = res$max_mut, linetype = "dashed", color = "black") +
+  geom_point(data = subset(res$history, iteration == max(res$history$iteration)), 
+             aes(x = iteration, y = mutual_info), 
+             color = "black", size = 1) +
+  annotate("text", x = max(res$history$iteration), y = res$min_mut, 
+           label = paste0("Min Mutual Info: ", round(res$min_mut, 3)), 
+           vjust = 1.6, hjust = 1, color = "black", size = 3) +
+  annotate("text", x = max(res$history$iteration), y = res$max_mut, 
+           label = paste0("Max Mutual Info: ", round(res$max_mut, 3)), 
+           vjust = -1, hjust = 1, color = "black", size = 3) +
+  scale_x_log10()
 
-res$df_stat  %>% 
-  ggplot(aes(x = iteration, y = mutual_info, color = method)) +
-  geom_line() +
-  labs(title = "Mutual Information Over Iterations", x = "Iteration", y = "Mutual Information") +
-  theme_minimal() +
-  facet_wrap(~type, scales = "free_y") +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 60))
 
