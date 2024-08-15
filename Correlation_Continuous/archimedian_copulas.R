@@ -5,6 +5,8 @@ library(MASS)
 library(mvtnorm)
 library(akima)
 library(actuar)
+library(copula)
+library(goftest)
 
 set.seed(123)
 n <- 10000  # Number of samples
@@ -21,15 +23,16 @@ generate_clayton_copula_samples <- function(n, d, theta) {
   # Step 2: Sample Xi ~ U[0,1] (independent uniform samples)
   Xi <- matrix(runif(n * d), nrow = n, ncol = d)
   
-  # Step 3: Calculate the U_i using the transformation U_i = (1 - log(Xi) / V) ^ (-1 / theta)
+  # Step 3: Calculate the U_i using the transformation
   U <- (1 - log(Xi) / V) ^ (-1 / theta)
   
   return(U)
 }
-theta_values <- seq(0.1, 5, by = 0.01)  # Range of theta values
+theta_values <- seq(0.1, 20, by = 0.01)  # Range of theta values
 correlations <- sapply(theta_values, function(theta) {
+  print(theta)
   samples <- generate_clayton_copula_samples(n, d, theta)
-  cor(samples[, 1], samples[, 2])  # Calculate the correlation between the two dimensions
+  cor(samples[, 1], samples[, 2], method = "kendall")
 })
 # Create a data frame for plotting
 correlation_df <- data.frame(
@@ -38,11 +41,12 @@ correlation_df <- data.frame(
 )
 # Plot the correlation against theta
 ggplot(correlation_df, aes(x = Theta, y = Correlation)) +
-  geom_line(color = "blue") 
-labs(title = "Correlation vs Theta in Clayton Copula",
+  geom_line(color = "blue")  +
+  labs(title = "Correlation vs Theta in Clayton Copula",
      x = "Theta",
      y = "Correlation") +
   theme_minimal()
+write.csv(correlation_df, "clayton_corr")
 
 ################################################################################
 ################################ AMH ##################################
@@ -54,7 +58,7 @@ generate_amh_copula_samples <- function(n, d, theta) {
   # Step 2: Sample Xi ~ U[0,1] (independent uniform samples)
   Xi <- matrix(runif(n * d), nrow = n, ncol = d)
   
-  # Step 3: Calculate the U_i using the transformation U_i = exp(-(-log(Xi) / V)^(1/theta))
+  # Step 3: Calculate the U_i using the transformation
   U <- (1 - theta)/(exp(-log(Xi)/V) - theta)
   
   return(U)
@@ -88,7 +92,7 @@ generate_frank_copula_samples <- function(n, d, theta) {
   # Step 2: Sample Xi ~ U[0,1] (independent uniform samples)
   Xi <- matrix(runif(n * d), nrow = n, ncol = d)
   
-  # Step 3: Calculate the U_i using the transformation U_i = exp(-(-log(Xi) / V)^(1/theta))
+  # Step 3: Calculate the U_i using the transformation
   t <- -log(Xi/V)
   U <- (-log(exp(-t)*(exp(-theta) - 1) + 1))/theta
   
