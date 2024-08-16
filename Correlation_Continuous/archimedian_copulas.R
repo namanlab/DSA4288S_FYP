@@ -45,8 +45,9 @@ ggplot(correlation_df, aes(x = Theta, y = Correlation)) +
   labs(title = "Correlation vs Theta in Clayton Copula",
      x = "Theta",
      y = "Correlation") +
-  theme_minimal()
-write.csv(correlation_df, "clayton_corr")
+  theme_minimal() +
+  geom_function(fun = function(x){x/(x+2)}) # clayton: kendall tau is theta/(2 + theta)
+write.csv(correlation_df, "archimedian_corr/clayton_corr.csv")
 
 ################################################################################
 ################################ AMH ##################################
@@ -65,8 +66,9 @@ generate_amh_copula_samples <- function(n, d, theta) {
 }
 theta_values <- seq(0.01, 0.99, by = 0.01)  # Range of theta values
 correlations <- sapply(theta_values, function(theta) {
+  print(theta)
   samples <- generate_amh_copula_samples(n, d, theta)
-  cor(samples[, 1], samples[, 2])  # Calculate the correlation between the two dimensions
+  cor(samples[, 1], samples[, 2], method = "kendall")
 })
 # Create a data frame for plotting
 correlation_df <- data.frame(
@@ -75,11 +77,12 @@ correlation_df <- data.frame(
 )
 # Plot the correlation against theta
 ggplot(correlation_df, aes(x = Theta, y = Correlation)) +
-  geom_line(color = "blue") 
-labs(title = "Correlation vs Theta in Clayton Copula",
+  geom_line(color = "blue")  +
+  labs(title = "Correlation vs Theta in AMH Copula",
      x = "Theta",
      y = "Correlation") +
   theme_minimal()
+write.csv(correlation_df, "archimedian_corr/amh_corr.csv")
 
 
 ################################################################################
@@ -98,10 +101,11 @@ generate_frank_copula_samples <- function(n, d, theta) {
   
   return(U)
 }
-theta_values <- seq(0.1, 10, by = 0.01) # Range of theta values
+theta_values <- seq(0.1, 30, by = 0.01) # Range of theta values
 correlations <- sapply(theta_values, function(theta) {
+  print(theta)
   samples <- generate_frank_copula_samples(n, d, theta)
-  cor(samples[, 1], samples[, 2])  # Calculate the correlation between the two dimensions
+  cor(samples[, 1], samples[, 2], method = "kendall")
 })
 # Create a data frame for plotting
 correlation_df <- data.frame(
@@ -110,8 +114,9 @@ correlation_df <- data.frame(
 )
 # Plot the correlation against theta
 ggplot(correlation_df, aes(x = Theta, y = Correlation)) +
-  geom_line(color = "blue") 
-labs(title = "Correlation vs Theta in Clayton Copula",
+  geom_line(color = "blue")  +
+  labs(title = "Correlation vs Theta in FRANK Copula",
      x = "Theta",
      y = "Correlation") +
   theme_minimal()
+write.csv(correlation_df, "archimedian_corr/frank_corr.csv")
