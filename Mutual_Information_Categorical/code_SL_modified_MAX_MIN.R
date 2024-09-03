@@ -285,29 +285,13 @@ new_mutual_cols <- function(df, max_n = 10000, min_inf = 0.5) {
               df_stat = df_stat))
 }
 
-# Example usage
+# Example usage: LARGE
 set.seed(42)
 df <- data.frame(
   x = sample(str_c("Categ", 1:50), 10000, replace = TRUE),
-  y = sample(str_c("Categ", 10:50), 10000, replace = TRUE)
+  y = sample(str_c("Categ", 11:60), 10000, replace = TRUE)
 )
-
-
-# df <- data.frame(
-#   x = sample(c(rep("b", 50), rep("a", 25)), 75),
-#   y = sample(c(rep("b", 25), rep("a", 50)), 75)
-# )
-
-# Find range of mutual information
 res <- new_mutual_cols(df, max_n = 50000)
-res$df_stat %>%
-  ggplot(aes(x = iteration, y = mutual_info, color = type)) +
-  geom_line() +
-  labs(title = "Mutual Information Over Iterations", x = "Iteration", y = "Mutual Information") +
-  theme_minimal() +
-  facet_wrap(~method) +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 60))
-
 res$df_stat  %>% 
   ggplot(aes(x = iteration, y = mutual_info, color = method)) +
   geom_line() +
@@ -315,4 +299,43 @@ res$df_stat  %>%
   theme_minimal() +
   facet_wrap(~type, scales = "free_y") +
   theme(legend.position = "bottom", axis.text.x = element_text(angle = 60))
+
+# Example usage: MEDIUM
+set.seed(9)
+df <- data.frame(
+  x = sample(str_c("Categ", 1:10), 10000, replace = TRUE)
+) %>% mutate(y = 
+               ifelse(str_ends(x, "5"), sample(str_c("Categ", 11:20), replace = TRUE),
+                             sample(str_c("Categ", 11:21), replace = TRUE))
+               )
+length(unique(df$y))
+res <- new_mutual_cols(df, max_n = 50000)
+res$df_stat  %>% 
+  mutate(iteration = ifelse(iteration == 0, 1, iteration)) %>%
+  ggplot(aes(x = iteration, y = mutual_info, color = method)) +
+  geom_line() +
+  labs(title = "Mutual Information Over Iterations", x = "Iteration", y = "Mutual Information") +
+  theme_minimal() +
+  facet_wrap(~type, scales = "free_y") +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 60)) + 
+  scale_x_log10()
+
+# Example usage: SMALL
+set.seed(42)
+df <- data.frame(
+  x = sample(str_c("Categ", 1:3), 10000, replace = TRUE)
+) %>% mutate(y = 
+               ifelse(str_ends(x, "1"), sample(str_c("Categ", 1:2), replace = TRUE),
+                      sample(str_c("Categ", 1:3), replace = TRUE))
+)
+res <- new_mutual_cols(df, max_n = 50000)
+res$df_stat  %>% 
+  mutate(iteration = ifelse(iteration == 0, 1, iteration)) %>%
+  ggplot(aes(x = iteration, y = mutual_info, color = method)) +
+  geom_line() +
+  labs(title = "Mutual Information Over Iterations", x = "Iteration", y = "Mutual Information") +
+  theme_minimal() +
+  facet_wrap(~type, scales = "free_y") +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 60)) + 
+  scale_x_log10()
 

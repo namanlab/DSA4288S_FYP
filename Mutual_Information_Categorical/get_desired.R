@@ -252,17 +252,7 @@ solve_entropy <- function(df, target, max_n = 10000, epsilon = 0.001) {
               max_mut = new_mut_max, min_mut = new_mut_min))
 }
 
-# Example usage
-set.seed(42)
-df <- data.frame(
-  x = sample(str_c("Categ", 1:50), 10000, replace = TRUE),
-  y = sample(str_c("Categ", 10:50), 10000, replace = TRUE)
-)
-# df <- data.frame(
-#   x = sample(c(rep("b", 50), rep("a", 25)), 75),
-#   y = sample(c(rep("b", 25), rep("a", 50)), 75)
-# )
-
+# Increasing
 set.seed(33)
 df <- data.frame(
   x = sample(str_c("Categ", 1:4), 10000, replace = TRUE),
@@ -271,10 +261,55 @@ df <- data.frame(
 
 target_entropy <- 1.4 # Set your target entropy here
 res <- solve_entropy(df, target_entropy)
-
-# Output the results
 final_table <- res$final_table
-print(final_table)
+a = res$history
+res$history %>%
+  ggplot(aes(x = iteration, y = mutual_info, color = type)) +
+  geom_line() +
+  labs(title = "Mutual Information Over Iterations", x = "Iteration", y = "Mutual Information") +
+  theme_minimal() +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 60)) +
+  xlim(c(0, 1.5 * max(res$history$iteration))) + 
+  ylim(c(res$min_mut - 1, res$max_mut + 1)) +
+  geom_hline(yintercept = res$min_mut, linetype = "dashed", color = "black") +
+  geom_hline(yintercept = res$max_mut, linetype = "dashed", color = "black") +
+  geom_point(data = subset(res$history, iteration == max(res$history$iteration)), 
+             aes(x = iteration, y = mutual_info), 
+             color = "black", size = 1) +
+  annotate("text", x = max(res$history$iteration), y = res$min_mut, 
+           label = paste0("Min Mutual Info: ", round(res$min_mut, 3)), 
+           vjust = 1.6, hjust = 1, color = "black", size = 3) +
+  annotate("text", x = max(res$history$iteration), y = res$max_mut, 
+           label = paste0("Max Mutual Info: ", round(res$max_mut, 3)), 
+           vjust = -1, hjust = 1, color = "black", size = 3) +
+  scale_x_log10()
+
+
+# Decreasing
+
+
+get_entropy <- function(df) {
+  y_name <- colnames(df)[1]
+  x_name <- colnames(df)[2]
+  table <- as.matrix(table(df[, c(y_name, x_name)]))
+  table_sum <- sum(table)
+  table <- table/table_sum # normalize
+  old_mut <- MutInf(table)
+  old_mut
+}
+set.seed(42)
+df <- data.frame(
+  x = sample(str_c("Categ", 1:4), 10000, replace = TRUE)
+) %>% mutate(y = 
+               ifelse(str_ends(x, "1"), sample(str_c("Categ", 10:8), 1, replace = TRUE),
+                      ifelse(str_ends(x, "2"), sample(str_c("Categ", 8:6), 1, replace = TRUE),
+                             sample(str_c("Categ", 5:4), 1, replace = TRUE))
+                      )
+             )
+get_entropy(df)
+target_entropy <- 0.2 # Set your target entropy here
+res <- solve_entropy(df, target_entropy)
+final_table <- res$final_table
 a = res$history
 res$history %>%
   ggplot(aes(x = iteration, y = mutual_info, color = type)) +
