@@ -98,8 +98,8 @@ amh_copula_2 <- function(n, p){
 ################################################################################
 
 # Inverse CDF generator using quantiles
-genCDFInv_quantile <- function(data) {
-  return(function(p) {quantile(data, p)})
+genCDFInv_quantile <- function(data, type = 1) {
+  return(function(p) {quantile(data, p, type = type)})
 }
 
 # Inverse CDF generator using linear interpolation
@@ -251,13 +251,19 @@ evaluate_copulas_and_inverse_cdfs_parametric <- function(target_corr_kendall,
   
   # Apply chosen inverse CDF
   inv_cdf_d1 <- switch(inv_cdf_type,
-                       "quantile" = genCDFInv_quantile(d1),
+                       "quantile_1" = genCDFInv_quantile(d1, 1), # stepwise
+                       "quantile_4" = genCDFInv_quantile(d1, 4), # linear interpolation
+                       "quantile_7" = genCDFInv_quantile(d1, 7), # default
+                       "quantile_8" = genCDFInv_quantile(d1, 8), # median-unbiased
                        "linear" = genCDFInv_linear(d1),
                        "akima" = genCDFInv_akima(d1),
                        "poly" = genCDFInv_poly(d1))
   
   inv_cdf_d2 <- switch(inv_cdf_type,
-                       "quantile" = genCDFInv_quantile(d2),
+                       "quantile_1" = genCDFInv_quantile(d2, 1), # stepwise
+                       "quantile_4" = genCDFInv_quantile(d2, 4), # linear interpolation
+                       "quantile_7" = genCDFInv_quantile(d2, 7), # default
+                       "quantile_8" = genCDFInv_quantile(d2, 8), # median-unbiased
                        "linear" = genCDFInv_linear(d2),
                        "akima" = genCDFInv_akima(d2),
                        "poly" = genCDFInv_poly(d2))
@@ -332,7 +338,7 @@ distributions <- list(
   mixture1 = distribution_mixture1,
   mixture2 = distribution_mixture2
 )
-inv_cdf_types <- c("quantile", "linear", "poly")
+inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "linear", "poly", "akima")
 copula_types <- c("gaussian", "t")
 n_range <- c(100, 1000, 10000)
 
@@ -612,13 +618,19 @@ evaluate_copulas_and_inverse_cdfs_bootstrap <- function(target_corr_kendall,
   
   # Apply chosen inverse CDF
   inv_cdf_d1 <- switch(inv_cdf_type,
-                       "quantile" = genCDFInv_quantile(sampled_x1),
+                       "quantile_1" = genCDFInv_quantile(sampled_x1, 1), # stepwise
+                       "quantile_4" = genCDFInv_quantile(sampled_x1, 4), # linear interpolation
+                       "quantile_7" = genCDFInv_quantile(sampled_x1, 7), # default
+                       "quantile_8" = genCDFInv_quantile(sampled_x1, 8), # median-unbiased
                        "linear" = genCDFInv_linear(sampled_x1),
                        "akima" = genCDFInv_akima(sampled_x1),
                        "poly" = genCDFInv_poly(sampled_x1))
   
   inv_cdf_d2 <- switch(inv_cdf_type,
-                       "quantile" = genCDFInv_quantile(sampled_x2),
+                       "quantile_1" = genCDFInv_quantile(sampled_x2, 1), # stepwise
+                       "quantile_4" = genCDFInv_quantile(sampled_x2, 4), # linear interpolation
+                       "quantile_7" = genCDFInv_quantile(sampled_x2, 7), # default
+                       "quantile_8" = genCDFInv_quantile(sampled_x2, 8), # median-unbiased
                        "linear" = genCDFInv_linear(sampled_x2),
                        "akima" = genCDFInv_akima(sampled_x2),
                        "poly" = genCDFInv_poly(sampled_x2))
@@ -726,7 +738,7 @@ datasets <- list(
 )
 
 
-inv_cdf_types <- c("quantile", "linear", "poly")
+inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "linear", "poly", "akima")
 copula_types <- c("gaussian", "t")
 bootstap_size = 50
 
@@ -1004,13 +1016,19 @@ plot_copulas_and_inverse_cdfs_bootstrap <- function(target_corr_kendall,
   
   # Apply chosen inverse CDF
   inv_cdf_d1 <- switch(inv_cdf_type,
-                       "quantile" = genCDFInv_quantile(sampled_x1),
+                       "quantile_1" = genCDFInv_quantile(sampled_x1, 1), # stepwise
+                       "quantile_4" = genCDFInv_quantile(sampled_x1, 4), # linear interpolation
+                       "quantile_7" = genCDFInv_quantile(sampled_x1, 7), # default
+                       "quantile_8" = genCDFInv_quantile(sampled_x1, 8), # median-unbiased
                        "linear" = genCDFInv_linear(sampled_x1),
                        "akima" = genCDFInv_akima(sampled_x1),
                        "poly" = genCDFInv_poly(sampled_x1))
   
   inv_cdf_d2 <- switch(inv_cdf_type,
-                       "quantile" = genCDFInv_quantile(sampled_x2),
+                       "quantile_1" = genCDFInv_quantile(sampled_x2, 1), # stepwise
+                       "quantile_4" = genCDFInv_quantile(sampled_x2, 4), # linear interpolation
+                       "quantile_7" = genCDFInv_quantile(sampled_x2, 7), # default
+                       "quantile_8" = genCDFInv_quantile(sampled_x2, 8), # median-unbiased
                        "linear" = genCDFInv_linear(sampled_x2),
                        "akima" = genCDFInv_akima(sampled_x2),
                        "poly" = genCDFInv_poly(sampled_x2))
@@ -1099,7 +1117,7 @@ datasets <- list(
   
 )
 
-inv_cdf_types <- c("quantile", "linear", "poly", "akima")
+inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "linear", "poly", "akima")
 copula_types <- c("gaussian", "t")
 
 results <- NULL
@@ -1176,7 +1194,6 @@ total_variation <- function(f, x_range, n_points = 1000) {
   x_vals <- seq(x_range[1], x_range[2], length.out = n_points)
   f_vals <- sapply(x_vals, f)
   v <- diff(f_vals)
-  v <- v[v > mean(v)]
   
   # Calculate the total variation as the sum of absolute differences
   variation <- sd(v)
@@ -1190,7 +1207,6 @@ f <- function(x) sin(x)
 # Quantify smoothness over the range [0, 2*pi]
 x_range <- c(0, 2 * pi)
 variation_measure <- total_variation(f, x_range)
-
 print(variation_measure)
 
 
@@ -1233,13 +1249,19 @@ eval_smoothness_bootstrap <- function(target_corr_kendall,
   
   # Apply chosen inverse CDF
   inv_cdf_d1 <- switch(inv_cdf_type,
-                       "quantile" = genCDFInv_quantile(sampled_x1),
+                       "quantile_1" = genCDFInv_quantile(sampled_x1, 1), # stepwise
+                       "quantile_4" = genCDFInv_quantile(sampled_x1, 4), # linear interpolation
+                       "quantile_7" = genCDFInv_quantile(sampled_x1, 7), # default
+                       "quantile_8" = genCDFInv_quantile(sampled_x1, 8), # median-unbiased
                        "linear" = genCDFInv_linear(sampled_x1),
                        "akima" = genCDFInv_akima(sampled_x1),
                        "poly" = genCDFInv_poly(sampled_x1))
   
   inv_cdf_d2 <- switch(inv_cdf_type,
-                       "quantile" = genCDFInv_quantile(sampled_x2),
+                       "quantile_1" = genCDFInv_quantile(sampled_x2, 1), # stepwise
+                       "quantile_4" = genCDFInv_quantile(sampled_x2, 4), # linear interpolation
+                       "quantile_7" = genCDFInv_quantile(sampled_x2, 7), # default
+                       "quantile_8" = genCDFInv_quantile(sampled_x2, 8), # median-unbiased
                        "linear" = genCDFInv_linear(sampled_x2),
                        "akima" = genCDFInv_akima(sampled_x2),
                        "poly" = genCDFInv_poly(sampled_x2))
@@ -1325,7 +1347,7 @@ datasets <- list(
   
 )
 
-inv_cdf_types <- c("quantile", "linear", "poly", "akima")
+inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "linear", "poly", "akima")
 
 results_sm <- NULL
 iter = 0

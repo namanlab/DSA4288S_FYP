@@ -370,5 +370,143 @@ print(cor(df_res$x, df_res$y, method = "kendall"))
 ################################################################################
 ################################################################################
 ################################################################################
-# TEST THE CORR VALUES
+
+
+## Approach 4: 3.5 + allow sum variable boundaries
+
+set.seed(123)
+n <- 1000
+
+# Generate data for two categories of z
+z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
+x <- rnorm(n, 10, sd = 1)
+y <- -2*x + rnorm(n, 5, sd = 1)
+
+t = c(-0.8, -0.8, -0.8) # c(0.8, -0.8, 0.6)
+p = sin(t*pi/2) 
+
+# Split the distribution of x into quantile slices based on categories in z
+z_levels <- sort(unique(z))
+z <- sort(z)
+x_quantiles <- quantile(x, probs = cumsum(table(z)/length(z)))
+y_quantiles <- quantile(y, probs = cumsum(table(z)/length(z)))
+eps_x <- 1
+eps_y <- 1
+
+df_res <- data.frame()
+
+for (i in seq_along(z_levels)) {
+  z_cat <- z_levels[i]
+  prob_val = as.vector(table(z)[i]/length(z))
+  
+  # Generate samples using the Gaussian copula
+  p_corr <- p[i]
+  n_samples <- sum(z == z_cat)
+  copula_samples <- gauss_copula_2(n_samples, p_corr)
+  
+  # Filter x_samples based on x_range
+  filtered_idx_x <- if (i == 1) {
+    which(x <= x_quantiles[i] + eps_x)
+  } else {
+    which(x > x_quantiles[i - 1] - eps_x & x <= x_quantiles[i] + eps_x)
+  }
+  filtered_idx_y <- if (i == 1) {
+    which(y <= y_quantiles[i] + eps_y)
+  } else {
+    which(y > y_quantiles[i - 1] - eps_y  & y <= y_quantiles[i] + eps_y)
+  }
+  x_samples <- x[filtered_idx_x]
+  y_samples <- y[filtered_idx_y]
+  
+  F1Inv <- Vectorize(genCDFInv_linear(x_samples))
+  F2Inv <- Vectorize(genCDFInv_linear(y_samples))
+  
+  # Transform samples using the inverse CDFs
+  x_samples <- F1Inv(copula_samples[, 1])
+  y_samples <- F2Inv(copula_samples[, 2])
+  
+  # Append results
+  df_res <- rbind(df_res, data.frame(x = x_samples, y = y_samples, z = z_cat))
+}
+
+p = df_res %>% ggplot() +
+  geom_point(aes(x = x, y = y, color = z)) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+ggMarginal(p, type="density")
+for (i in unique(df_res$z)){
+  cur_df = df_res %>% filter(z == i)
+  print(cor(cur_df$x, cur_df$y, method = "kendall"))
+}
+print(cor(df_res$x, df_res$y, method = "kendall"))
+
+
+
+## Approach 5: 4 but preserve densities
+
+set.seed(123)
+n <- 1000
+
+# Generate data for two categories of z
+z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
+x <- rnorm(n, 10, sd = 1)
+y <- -2*x + rnorm(n, 5, sd = 1)
+
+t = c(-0.8, -0.8, -0.8) # c(0.8, -0.8, 0.6)
+p = sin(t*pi/2) 
+
+# Split the distribution of x into quantile slices based on categories in z
+z_levels <- sort(unique(z))
+z <- sort(z)
+x_quantiles <- quantile(x, probs = cumsum(table(z)/length(z)))
+y_quantiles <- quantile(y, probs = cumsum(table(z)/length(z)))
+eps_x <- 2
+eps_y <- 2
+
+df_res <- data.frame()
+
+for (i in seq_along(z_levels)) {
+  z_cat <- z_levels[i]
+  prob_val = as.vector(table(z)[i]/length(z))
+  
+  # Generate samples using the Gaussian copula
+  p_corr <- p[i]
+  n_samples <- sum(z == z_cat)
+  copula_samples <- gauss_copula_2(n_samples, p_corr)
+  
+  # Filter x_samples based on x_range
+  filtered_idx_x <- if (i == 1) {
+    which(x <= x_quantiles[i] + eps_x)
+  } else {
+    which(x > x_quantiles[i - 1] - eps_x & x <= x_quantiles[i] + eps_x)
+  }
+  filtered_idx_y <- if (i == 1) {
+    which(y <= y_quantiles[i] + eps_y)
+  } else {
+    which(y > y_quantiles[i - 1] - eps_y  & y <= y_quantiles[i] + eps_y)
+  }
+  x_samples <- x[filtered_idx_x]
+  y_samples <- y[filtered_idx_y]
+  
+  F1Inv <- Vectorize(genCDFInv_linear(x_samples))
+  F2Inv <- Vectorize(genCDFInv_linear(y_samples))
+  
+  # Transform samples using the inverse CDFs
+  x_samples <- F1Inv(copula_samples[, 1])
+  y_samples <- F2Inv(copula_samples[, 2])
+  
+  # Append results
+  df_res <- rbind(df_res, data.frame(x = x_samples, y = y_samples, z = z_cat))
+}
+
+p = df_res %>% ggplot() +
+  geom_point(aes(x = x, y = y, color = z)) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+ggMarginal(p, type="density")
+for (i in unique(df_res$z)){
+  cur_df = df_res %>% filter(z == i)
+  print(cor(cur_df$x, cur_df$y, method = "kendall"))
+}
+print(cor(df_res$x, df_res$y, method = "kendall"))
 
