@@ -36,7 +36,7 @@ calculate_tv_distance_empirical <- function(original_data, generated_data) {
   x_values <- sort(unique(c(original_data, generated_data)))
   # Calculate the TV distance
   tv_distance <- max(abs(original_ecdf(x_values) - generated_ecdf(x_values)))
-  list(tv_distance = tv_distance)
+  return(tv_distance)
 }
 
 # Step 1: Generate Data
@@ -52,18 +52,14 @@ F1Inv <- Vectorize(genCDFInv_linear(x))
 F2Inv <- Vectorize(genCDFInv_linear(y))
 
 
-t1 = -0.8
-t2 = 0.4
-p1 = sin(t1*pi/2) 
-p2 = sin(t2*pi/2)
 
-# Objective function combining total variation distance and changes in beta coefficients
-objective_function <- function(X_prime, Y_prime, X, Y, beta0_orig, beta1_orig, lambda1, lambda2) {
+# Objective function combining total variation distance, changes in beta coefficients, and R^2 differences across Z categories
+objective_function <- function(X_prime, Y_prime, X, Y, Z, beta0_orig, beta1_orig, lambda1, lambda2, lambda3, R2_orig) {
   # Compute total variation distance
   TV_X <- calculate_tv_distance_empirical(X, X_prime)
   TV_Y <- calculate_tv_distance_empirical(Y, Y_prime)
   
-  # Fit regression model
+  # Fit regression model for the entire dataset
   fit <- lm(Y_prime ~ X_prime)
   beta0_new <- coef(fit)[1]
   beta1_new <- coef(fit)[2]
@@ -72,14 +68,37 @@ objective_function <- function(X_prime, Y_prime, X, Y, beta0_orig, beta1_orig, l
   delta_beta0 <- beta0_new - beta0_orig
   delta_beta1 <- beta1_new - beta1_orig
   
-  # Loss function
-  loss <- TV_X + TV_Y + lambda1 * delta_beta0^2 + lambda2 * delta_beta1^2
-  return(loss)
+  # Compute R^2 for each category in Z
+  R2_diff <- 0
+  categories <- unique(Z)
+  for (cat in categories) {
+    X_cat <- X[Z == cat]
+    Y_cat <- Y[Z == cat]
+    X_prime_cat <- X_prime[Z == cat]
+    Y_prime_cat <- Y_prime[Z == cat]
+    
+    # Original R^2 for this category
+    fit_orig_cat <- lm(Y_cat ~ X_cat)
+    R2_orig_cat <- summary(fit_orig_cat)$r.squared
+    
+    # New R^2 for this category
+    fit_prime_cat <- lm(Y_prime_cat ~ X_prime_cat)
+    R2_new_cat <- summary(fit_prime_cat)$r.squared
+    
+    # Sum of squared differences in R^2 across all categories
+    R2_diff <- R2_diff + (R2_new_cat - R2_orig_cat)^2
+  }
+  
+  # Loss function: combine TV distance, coefficient changes, and R^2 differences
+  loss_1 <- TV_X + TV_Y + lambda1 * delta_beta0^2 + lambda2 * delta_beta1^2  
+  print(loss_1)
+  optim_2 <- lambda3 * R2_diff
+  print(optim_2)
+  return(loss_1 - optim_2)
 }
 
-
-# Simulated Annealing
-simulated_annealing <- function(X, Y, lambda1 = 1, lambda2 = 1, max_iter = 1000, initial_temp = 1.0, cooling_rate = 0.99) {
+# Simulated Annealing including categorical variable Z and R^2 differences
+simulated_annealing <- function(X, Y, Z, lambda1 = 1, lambda2 = 1, lambda3 = 1, max_iter = 1000, initial_temp = 1.0, cooling_rate = 0.99) {
   X_prime <- X
   Y_prime <- Y
   best_X_prime <- X_prime
@@ -90,7 +109,14 @@ simulated_annealing <- function(X, Y, lambda1 = 1, lambda2 = 1, max_iter = 1000,
   beta0_orig <- coef(fit_orig)[1]
   beta1_orig <- coef(fit_orig)[2]
   
-  best_loss <- objective_function(X_prime, Y_prime, X, Y, beta0_orig, beta1_orig, lambda1, lambda2)
+  # Original R^2 for each category of Z
+  categories <- unique(Z)
+  R2_orig <- sapply(categories, function(cat) {
+    fit_cat <- lm(Y[Z == cat] ~ X[Z == cat])
+    summary(fit_cat)$r.squared
+  })
+  
+  best_loss <- objective_function(X_prime, Y_prime, X, Y, Z, beta0_orig, beta1_orig, lambda1, lambda2, lambda3, R2_orig)
   
   temp <- initial_temp
   for (i in 1:max_iter) {
@@ -99,7 +125,7 @@ simulated_annealing <- function(X, Y, lambda1 = 1, lambda2 = 1, max_iter = 1000,
     new_Y_prime <- Y_prime + rnorm(length(Y_prime), 0, 0.01)
     
     # Compute the new loss
-    new_loss <- objective_function(new_X_prime, new_Y_prime, X, Y, beta0_orig, beta1_orig, lambda1, lambda2)
+    new_loss <- objective_function(new_X_prime, new_Y_prime, X, Y, Z, beta0_orig, beta1_orig, lambda1, lambda2, lambda3, R2_orig)
     
     # Accept new solution based on probability
     if (new_loss < best_loss || runif(1) < exp((best_loss - new_loss) / temp)) {
@@ -121,8 +147,24 @@ simulated_annealing <- function(X, Y, lambda1 = 1, lambda2 = 1, max_iter = 1000,
   return(list(X_prime = best_X_prime, Y_prime = best_Y_prime))
 }
 
+
 # Example usage
-result <- simulated_annealing(x, y)
+result <- simulated_annealing(x, y, z)
+p1 <- ggplot(data.frame(x = x, xp = result$X_prime)) +
+  geom_density(aes(x = x), color = "blue") +
+  geom_density(aes(x = xp), color = "red") +
+  theme_bw() + labs(main = "x (blue) vs x' (red)")
+p2 <- ggplot(data.frame(y = y, yp = result$Y_prime)) +
+  geom_density(aes(x = y), color = "blue") +
+  geom_density(aes(x = yp), color = "red") +
+  theme_bw() + labs(main = "y (blue) vs y' (red)")
+p3 <- ggplot(data.frame(x = x, y = y, z = z)) +
+  geom_point(aes(x = x, y = y, color = z)) +
+  theme_bw() + labs(main = "x vs y")
+p4 <- ggplot(data.frame(x = result$X_prime, y = result$Y_prime, z = z)) +
+    geom_point(aes(x = x, y = y, color = z)) +
+  theme_bw() + labs(main = "x' vs y'")
+grid.arrange(p1, p2, p3, p4) 
 
 
 

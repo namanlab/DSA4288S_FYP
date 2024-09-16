@@ -10,6 +10,7 @@ library(actuar)
 library(copula)
 library(goftest)
 options(scipen = 999)
+library(gridExtra)
 
 
 ################################################################################
@@ -1379,6 +1380,7 @@ for (tau in target_corr_kendall) {
   }
 }
 
+write.csv(results_sm, "results/df_smooth.csv")
 
 
 df_plot = results_sm %>% 
@@ -1389,5 +1391,277 @@ df_plot %>%
   ggplot() + theme_bw() +
   geom_boxplot(aes(x = inv_cdf_type, y = s1)) +
   facet_wrap(~dataset, scales = "free") +
-  labs(x = "", y = "")
+  labs(x = "", y = "") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+
+
+
+
+################################################################################
+######################## TV + SMOOTHNESS MEASURE ###############################
+################################################################################
+
+
+
+
+
+# Function to calculate total variation
+total_variation <- function(f, x_range, n_points = 1000) {
+  x_vals <- seq(x_range[1], x_range[2], length.out = n_points)
+  f_vals <- sapply(x_vals, f)
+  v <- diff(f_vals)
+  
+  # Calculate the total variation as the sum of absolute differences
+  variation <- sd(v)
+  
+  return(variation)
+}
+calculate_tv_distance_empirical <- function(original_data, generated_data) {
+  # Create empirical CDFs for original and generated data
+  original_ecdf <- ecdf(original_data)
+  generated_ecdf <- ecdf(generated_data)
+  # Define the grid over which to calculate the distance
+  x_values <- sort(unique(c(original_data, generated_data)))
+  # Calculate the TV distance
+  tv_distance <- max(abs(original_ecdf(x_values) - generated_ecdf(x_values)))
+  list(tv_distance = tv_distance)
+}
+
+# Example function
+f <- function(x) sin(x^2)
+
+# Quantify smoothness over the range [0, 2*pi]
+x_range <- c(0, 2 * pi)
+variation_measure <- total_variation(f, x_range)
+print(variation_measure)
+
+
+
+
+eval_smoothness_tv_bootstrap <- function(target_corr_kendall,
+                                         sampled_x1, sampled_x2, 
+                                         act_x1, act_x2, 
+                                         copula_type, 
+                                      inv_cdf_type) {
+  
+  n = length(sampled_x1)
+  
+  # Generate copula samples
+  if (copula_type == "gaussian") {
+    target_rho = sin(target_corr_kendall*pi/2) # Greiner's equality 
+    res <- gauss_copula_2(n, target_rho) 
+  } else if (copula_type == "t") {
+    target_rho = sin(target_corr_kendall*pi/2) # Greiner's equality 
+    res <- t_copula_2(n, target_rho)
+  } else if (copula_type == "clayton") {
+    res <- clayton_copula_2(n, target_corr_kendall)
+  } else if (copula_type == "gumbel") {
+    res <- gumbel_copula_2(n, target_corr_kendall)
+  } else if (copula_type == "amh") {
+    res <- amh_copula_2(n, target_corr_kendall)
+  } else {
+    stop("Unsupported copula type")
+  }
+  
+  if (all(is.na(res))){
+    results <- list(
+      tv_result_1 = list(NA),
+      tv_result_2 = list(NA),
+      ks_test_result_1 = list(NA),
+      ks_test_result_2 = list(NA),
+      cvm_test_result_1 = list(NA),
+      cvm_test_result_2 = list(NA),
+      corr_change_test = list(NA)
+    )
+    return(results)
+  }
+  
+  # Apply chosen inverse CDF
+  inv_cdf_d1 <- switch(inv_cdf_type,
+                       "quantile_1" = genCDFInv_quantile(sampled_x1, 1), # stepwise
+                       "quantile_4" = genCDFInv_quantile(sampled_x1, 4), # linear interpolation
+                       "quantile_7" = genCDFInv_quantile(sampled_x1, 7), # default
+                       "quantile_8" = genCDFInv_quantile(sampled_x1, 8), # median-unbiased
+                       "linear" = genCDFInv_linear(sampled_x1),
+                       "akima" = genCDFInv_akima(sampled_x1),
+                       "poly" = genCDFInv_poly(sampled_x1))
+  
+  inv_cdf_d2 <- switch(inv_cdf_type,
+                       "quantile_1" = genCDFInv_quantile(sampled_x2, 1), # stepwise
+                       "quantile_4" = genCDFInv_quantile(sampled_x2, 4), # linear interpolation
+                       "quantile_7" = genCDFInv_quantile(sampled_x2, 7), # default
+                       "quantile_8" = genCDFInv_quantile(sampled_x2, 8), # median-unbiased
+                       "linear" = genCDFInv_linear(sampled_x2),
+                       "akima" = genCDFInv_akima(sampled_x2),
+                       "poly" = genCDFInv_poly(sampled_x2))
+  
+  F1Inv <- Vectorize(inv_cdf_d1)
+  F2Inv <- Vectorize(inv_cdf_d2)
+  
+  x1 <- F1Inv(res[,1])
+  x2 <- F2Inv(res[,2])
+  
+  s1 <- total_variation(F1Inv, c(0, 1)) 
+  s2 <- total_variation(F2Inv, c(0, 1))
+  
+  # Return all results
+  results <- list(
+    s1 = s1, s2 = s2,
+    tv1 = calculate_tv_distance_empirical(x1, act_x1)$tv_distance, 
+    tv2 = calculate_tv_distance_empirical(x2, act_x2)$tv_distance
+  )
+  
+  return(results)
+}
+
+
+# PARAM SPACE
+target_corr_kendall <- seq(-1, 1, 0.1)
+# Define datasets with relevant numeric columns, sorted by number of observations
+datasets <- list(
+  # Trees dataset (31 observations)
+  trees_df = data.frame(
+    x1 = trees$Girth,
+    x2 = trees$Height
+  ),
+  
+  # Mtcars dataset (32 observations)
+  mtcars_df = data.frame(
+    x1 = mtcars$mpg,
+    x2 = mtcars$hp
+  ),
+  
+  # Swiss dataset (47 observations)
+  swiss_df = data.frame(
+    x1 = swiss$Fertility,
+    x2 = swiss$Agriculture
+  ),
+  
+  # Rock dataset (48 observations)
+  rock_df = data.frame(
+    x1 = rock$area,
+    x2 = rock$peri
+  ),
+  
+  # USArrests dataset (50 observations)
+  USArrests_df = data.frame(
+    x1 = USArrests$Murder,
+    x2 = USArrests$Assault
+  ),
+  
+  # Iris dataset (150 observations)
+  iris_df = data.frame(
+    x1 = iris$Sepal.Length,
+    x2 = iris$Sepal.Width
+  ),
+  
+  # Airquality dataset (111 observations after removing NAs)
+  airquality_df = data.frame(
+    x1 = na.omit(airquality)$Ozone,
+    x2 = na.omit(airquality)$Wind
+  ),
+  
+  # Faithful dataset (272 observations)
+  faithful_df = data.frame(
+    x1 = faithful$eruptions,
+    x2 = faithful$waiting
+  ),
+  
+  # ChickWeight dataset (578 observations)
+  ChickWeight_df = data.frame(
+    x1 = ChickWeight$weight,
+    x2 = ChickWeight$Time
+  ),
+  
+  # Diamonds dataset (5000 observations)
+  diamonds_df = diamonds %>% sample_n(5000) %>% 
+    dplyr::select(x1 = carat, x2 = price) %>% as.data.frame()
+  
+  
+)
+
+inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "linear", "poly", "akima")
+
+
+results_smt <- NULL
+iter = 0
+set.seed(42)
+for (tau in target_corr_kendall) {
+  for (inv_cdf_type in inv_cdf_types) {
+    for (dataset in names(datasets)) {
+      # Print all parameters in one line
+      print(paste("tau:", tau, "inv_cdf_type:", inv_cdf_type, "dataset:", dataset))
+      df = datasets[[dataset]]
+      results <- eval_smoothness_tv_bootstrap(
+        target_corr_kendall = tau,
+        sampled_x1 = sample(df$x1, replace = T),
+        sampled_x2 = sample(df$x2, replace = T), 
+        act_x1 = df$x1,
+        act_x2 = df$x2, 
+        copula_type = "gaussian",
+        inv_cdf_type = inv_cdf_type
+      )
+      print(iter)
+      iter = iter + 1
+      # Store results in a data frame
+      temp_result <- data.frame(
+        target_corr_kendall = tau,
+        dataset = dataset,
+        inv_cdf_type = inv_cdf_type,
+        s1 = results$s1,
+        s2 = results$s2,
+        tv1 = results$tv1,
+        tv2 = results$tv2
+      )
+      results_smt <- bind_rows(results_smt, temp_result)
+    }
+  }
+}
+
+write.csv(results_smt, "results/df_smooth_tv.csv")
+
+df_plot = results_smt %>% 
+  filter(dataset %in% c("trees_df", "iris_df", "diamonds_df"),
+         inv_cdf_type != "linear") %>%
+  mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
+  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) 
+P1 <- df_plot %>%
+  ggplot() + theme_bw() +
+  geom_boxplot(aes(x = inv_cdf_type, y = s1)) +
+  facet_wrap(~dataset, scales = "free") +
+  labs(x = "", y = "Smoothness") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+P2 <- df_plot %>%
+  ggplot() + theme_bw() +
+  geom_boxplot(aes(x = inv_cdf_type, y = tv1)) +
+  facet_wrap(~dataset, scales = "free") +
+  labs(x = "", y = "TV") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+grid.arrange(P1, P2)
+
+
+lambda = 1
+df_plot1 =
+  df_plot %>% mutate(val_er_1 = tv1  + lambda*s1, val_er_2 = tv2  + lambda*s2)
+df_plot1 %>%
+  ggplot() + theme_bw() +
+  geom_boxplot(aes(x = inv_cdf_type, y = val_er_1)) +
+  facet_wrap(~dataset, scales = "free") +
+  labs(x = "", y = "") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+lambda = 5
+df_plot1 =
+  df_plot %>% mutate(val_er_1 = tv1  + lambda*s1, val_er_2 = tv2  + lambda*s2)
+df_plot1 %>%
+  ggplot() + theme_bw() +
+  geom_boxplot(aes(x = inv_cdf_type, y = val_er_1)) +
+  facet_wrap(~dataset, scales = "free") +
+  labs(x = "", y = "") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+
+
+
 
