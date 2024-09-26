@@ -1,9 +1,16 @@
 # Load necessary libraries
-library(copula)
-library(ggplot2)
-library(gridExtra)
-library(ggExtra)
+library(MCMCpack)
+library(stringr)
+library(GGally)
+library(tidyverse)
+library(MASS)
 library(mvtnorm)
+library(akima)
+library(actuar)
+library(copula)
+library(goftest)
+options(scipen = 999)
+library(gridExtra)
 
 generate_gaussian_copula_samples <- function(n, d, rho_matrix) {
   # Step 1: Generate multivariate normal samples
@@ -144,6 +151,36 @@ genetic_algorithm <- function(X, Y, Z, X_st, Y_st, p,
     return(individual)
   }
   
+  mutate_with_copula <- function(individual, Z, p_corrs, F1Inv, F2Inv, mutation_prob) {
+    unique_cats <- unique(Z)
+    
+    for (cat in unique_cats) {
+      # Get samples for this category
+      x_samples <- individual$X_prime[Z == cat]
+      y_samples <- individual$Y_prime[Z == cat]
+      
+      # Check if mutation should be applied
+      if (runif(1) < mutation_prob) {
+        # Generate copula samples with the desired correlation
+        n_samples <- sum(Z == cat)  # Number of samples for current category
+        p_corr <- p_corrs[cat]  # Desired correlation for the current category
+        
+        # Generate copula samples
+        copula_samples <- gauss_copula_2(n_samples, p_corr)
+        
+        # Transform copula samples using the inverse CDF functions
+        x_transformed <- F1Inv(copula_samples[, 1])
+        y_transformed <- F2Inv(copula_samples[, 2])
+        
+        # Replace original samples with transformed ones
+        individual$X_prime[Z == cat] <- x_transformed
+        individual$Y_prime[Z == cat] <- y_transformed
+      }
+    }
+    
+    return(individual)
+  }
+  
   # Genetic Algorithm
   for (gen in 1:num_generations) {
     # Calculate fitness scores
@@ -160,8 +197,8 @@ genetic_algorithm <- function(X, Y, Z, X_st, Y_st, p,
       offspring <- crossover(parent1, parent2)
       
       # Mutation
-      offspring[[1]] <- mutate(offspring[[1]], mutation_prob)
-      offspring[[2]] <- mutate(offspring[[2]], mutation_prob)
+      offspring[[1]] <- mutate_with_copula(offspring[[1]], mutation_prob)
+      offspring[[2]] <- mutate_with_copula(offspring[[2]], mutation_prob)
       
       # Add offspring to the new population
       new_population[[i]] <- offspring[[1]]
@@ -219,7 +256,7 @@ grid.arrange(p1, p2, p3, p4)
 
 
 ################################################################################
-############################# NEW RULES ############################
+############################# NEW RULES: COPULA ############################
 ################################################################################
 
 
@@ -648,12 +685,12 @@ n <- 100
 z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
 x <- rnorm(n, 10, sd = 5) + 5*rbeta(n, 5, 3)
 y <- 2*x + rnorm(n, 5, sd = 4)
-t = c(-0.8, -0.8, -0.8) 
+t = c(0.9, 0.7, 0.5) 
 res = modify_data(x, y, z, t, sel_parents_fn = select_parents_tournament,
                   mutation_prob = 0.5, 
                   crossover_fn = crossover_trad_z,
                   mutate_fn = mutate_corr_adjust, lambda4 = 10,
-                  num_generations = 500)
+                  num_generations = 100)
 cor(res$y_original, res$x_original)
 cor(res$y_transformed, res$x_transformed)
 cor(res$y_optimized, res$x_optimized)

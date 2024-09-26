@@ -1,8 +1,18 @@
 # Load necessary libraries
-library(copula)
-library(ggplot2)
 library(gridExtra)
 library(ggExtra)
+library(clue)
+library(MCMCpack)
+library(stringr)
+library(GGally)
+library(tidyverse)
+library(MASS)
+library(mvtnorm)
+library(akima)
+library(actuar)
+library(copula)
+library(goftest)
+options(scipen = 999)
 
 generate_gaussian_copula_samples <- function(n, d, rho_matrix) {
   # Step 1: Generate multivariate normal samples
@@ -41,9 +51,45 @@ calculate_tv_distance_empirical <- function(original_data, generated_data) {
 }
 
 
-# Objective function combining total variation distance, changes in beta coefficients, and R^2 differences across Z categories
+get_optimal_grid <- function(x, y, z){
+  # Calculate quantiles for x and y based on z distribution
+  z_levels <- sort(unique(z))
+  x_quantiles <- quantile(x, probs = cumsum(table(z) / length(z)))
+  y_quantiles <- quantile(y, probs = cumsum(table(z) / length(z)))
+  k = length(unique(z))
+  res = matrix(rep(0, k^2), nrow = k)
+  for (i in seq_along(z_levels)) {
+    x_range <- if (i == 1) {
+      which(x <= x_quantiles[i])
+    } else {
+      which(x > x_quantiles[i - 1] & x <= x_quantiles[i])
+    }
+    for (j in seq_along(z_levels)) {
+      temp_y = y[x_range]
+      y_range <- if (j == 1) {
+        which(temp_y <= y_quantiles[j])
+      } else {
+        which(temp_y > y_quantiles[j - 1] & temp_y <= y_quantiles[j])
+      }
+      res[i, j] = length(y_range)
+      
+    }
+  }
+  # Convert the matrix to a cost matrix
+  M <- max(res)
+  cost_matrix <- M - res
+  
+  # Solve the assignment problem using the Hungarian algorithm
+  assignment <- solve_LSAP(cost_matrix)
+  
+  # Return the row and column indices of the selected cells
+  return(as.vector(assignment))
+}
+
+
+
 objective_function <- function(X_prime, Y_prime, X, Y, Z, p, beta0_orig, beta1_orig, 
-                               lambda1, lambda2, lambda3, R2_orig) {
+                               lambda1, lambda2, lambda3, lambda4, R2_orig, printc = F) {
   # Compute total variation distance
   TV_X <- calculate_tv_distance_empirical(X, X_prime)
   TV_Y <- calculate_tv_distance_empirical(Y, Y_prime)
@@ -69,18 +115,65 @@ objective_function <- function(X_prime, Y_prime, X, Y, Z, p, beta0_orig, beta1_o
     # New R^2 for this category
     rho_curr <- cor(Y_prime_cat, X_prime_cat)
     R2_diff <- R2_diff + (rho_curr - p[cat])^2 # R2_orig_cat is target corr at start
+    if (printc) {
+      cat("rho inter:", cat, "act:", rho_curr, "expected:", p[cat], "sqdiff:", (rho_curr - p[cat])^2, "\n")
+    }
   }
-  R2_diff <- R2_diff/length(categories)
-  cat("TV:", TV_X, TV_Y,"Beta 0:", delta_beta0, "Beta 1:", delta_beta1, "R2:", R2_diff, "\n")
+  R2_diff <- R2_diff / length(categories)
   
-  # Loss function: combine TV distance, coefficient changes, and R^2 differences
-  loss <- TV_X + TV_Y + lambda1 * delta_beta0^2 + lambda2 * delta_beta1^2  + lambda3 * R2_diff
+  # Compute inter-cluster (centroid) distances
+  cluster_centroids <- lapply(categories, function(cat) {
+    X_cat_prime <- X_prime[Z == cat]
+    Y_cat_prime <- Y_prime[Z == cat]
+    return(c(mean(X_cat_prime), mean(Y_cat_prime))) # Centroid for (X, Y) in category 'cat'
+  })
+  
+  inter_cluster_dist <- 0
+  num_pairs <- 0
+  for (i in 1:(length(categories) - 1)) {
+    for (j in (i + 1):length(categories)) {
+      centroid_i <- cluster_centroids[[i]]
+      centroid_j <- cluster_centroids[[j]]
+      
+      # Compute Euclidean distance between centroids
+      dist_ij <- sqrt(sum((centroid_i - centroid_j)^2))
+      inter_cluster_dist <- inter_cluster_dist + dist_ij  
+      num_pairs <- num_pairs + 1
+    }
+  }
+  
+  # Average inverse of inter-cluster distances
+  inter_cluster_dist <- inter_cluster_dist / num_pairs
+  
+  # Use quantiles to compute a robust min and max distance (to handle outliers)
+  quantile_low <- 0.05  # 5th percentile for minimum
+  quantile_high <- 0.95 # 95th percentile for maximum
+  
+  # Quantile-based min and max distances for normalization
+  range_X <- quantile(X_prime, probs = c(quantile_low, quantile_high))
+  range_Y <- quantile(Y_prime, probs = c(quantile_low, quantile_high))
+  
+  # Min and max based on quantile ranges
+  min_dist <- 0 # Since min_dist is still 0 (clusters perfectly overlap)
+  max_dist <- sqrt((range_X[2] - range_X[1])^2 + (range_Y[2] - range_Y[1])^2) # Max possible distance based on quantiles
+  
+  # Perform quantile-based min-max normalization
+  normalized_inter_cluster_dist <- (inter_cluster_dist - min_dist) / (max_dist - min_dist)
+  
+  # Ensure the normalized value is between 0 and 1
+  inter_cluster_dist <- max(0, min(normalized_inter_cluster_dist, 1))
+  
+  # Display intermediate metrics
+  cat("TV:", TV_X, TV_Y, "Beta 0:", delta_beta0, "Beta 1:", delta_beta1, "R2:", R2_diff, "Cluster Dist:", inter_cluster_dist, "\n")
+  
+  # Loss function: combine TV distance, coefficient changes, R^2 differences, and cluster separation penalty
+  loss <- TV_X + TV_Y + lambda1 * delta_beta0^2 + lambda2 * delta_beta1^2 + lambda3 * R2_diff + lambda4 * inter_cluster_dist
   return(loss)
 }
 
 # Simulated Annealing including categorical variable Z and R^2 differences
 simulated_annealing <- function(X, Y, Z, X_st, Y_st, p, sd_x = 0.05, sd_y = 0.05,
-                                lambda1 = 1, lambda2 = 1, lambda3 = 1, 
+                                lambda1 = 1, lambda2 = 1, lambda3 = 1, lambda4 = 1,
                                 max_iter = 1000, initial_temp = 1.0, cooling_rate = 0.99) {
   X_prime <- X_st # start form the composition method output
   Y_prime <- Y_st # start form the composition method output
@@ -99,7 +192,7 @@ simulated_annealing <- function(X, Y, Z, X_st, Y_st, p, sd_x = 0.05, sd_y = 0.05
     summary(fit_cat)$r.squared
   })
   
-  best_loss <- objective_function(X_prime, Y_prime, X, Y, Z, p, beta0_orig, beta1_orig, lambda1, lambda2, lambda3, R2_orig)
+  best_loss <- objective_function(X_prime, Y_prime, X, Y, Z, p, beta0_orig, beta1_orig, lambda1, lambda2, lambda3, lambda4, R2_orig)
   
   temp <- initial_temp
   for (i in 1:max_iter) {
@@ -108,7 +201,7 @@ simulated_annealing <- function(X, Y, Z, X_st, Y_st, p, sd_x = 0.05, sd_y = 0.05
     new_Y_prime <- Y_prime + rnorm(length(Y_prime), 0, sd_y)
     
     # Compute the new loss
-    new_loss <- objective_function(new_X_prime, new_Y_prime, X, Y, Z, p, beta0_orig, beta1_orig, lambda1, lambda2, lambda3, R2_orig)
+    new_loss <- objective_function(new_X_prime, new_Y_prime, X, Y, Z, p, beta0_orig, beta1_orig, lambda1, lambda2, lambda3, lambda4, R2_orig)
     
     # Accept new solution based on probability
     if (new_loss < best_loss || runif(1) < exp((best_loss - new_loss) / temp)) {
@@ -139,10 +232,11 @@ modify_data <- function(x, y, z,
                         corr_vector,   # Vector of correlations
                         FInvFunc = genCDFInv_linear,      # Inverse CDF function to transform samples
                         sd_x = 0.05, sd_y = 0.05,   # Standard deviations for perturbations
-                        lambda1 = 1, lambda2 = 1, lambda3 = 1, 
+                        lambda1 = 1, lambda2 = 1, lambda3 = 1, lambda4 = 1,
                         max_iter = 1000,            # Maximum iterations for simulated annealing
                         initial_temp = 1.0,         # Initial temperature for annealing
-                        cooling_rate = 0.99) {      # Cooling rate for annealing
+                        cooling_rate = 0.99,
+                        order_vec = NA) {      # Cooling rate for annealing
   
   cat("Starting transformation process...\n")
   
@@ -153,6 +247,10 @@ modify_data <- function(x, y, z,
   z_levels <- sort(unique(z))
   names(p_corr_vec) <- z_levels
   z <- sort(z)
+  
+  if (any(is.na(order_vec))){
+    order_vec <- get_optimal_grid(x, y, z)
+  }
   
   # Calculate quantiles for x and y based on z distribution
   x_quantiles <- quantile(x, probs = cumsum(table(z) / length(z)))
@@ -178,10 +276,11 @@ modify_data <- function(x, y, z,
     } else {
       which(x > x_quantiles[i - 1] & x <= x_quantiles[i])
     }
-    y_range <- if (i == 1) {
-      which(y <= y_quantiles[i])
+    j = order_vec[i]
+    y_range <- if (j == 1) {
+      which(y <= y_quantiles[j])
     } else {
-      which(y > y_quantiles[i - 1] & y <= y_quantiles[i])
+      which(y > y_quantiles[j - 1] & y <= y_quantiles[j])
     }
     
     x_samples <- x[x_range]
@@ -206,7 +305,7 @@ modify_data <- function(x, y, z,
   res_anneal <- simulated_annealing(x, y, z, 
                                     df_composition$x, df_composition$y, p_corr_vec,
                                     sd_x, sd_y,
-                                    lambda1, lambda2, lambda3, 
+                                    lambda1, lambda2, lambda3, lambda4,
                                     max_iter, initial_temp, cooling_rate)
   
   # Create a final dataframe with the optimized x and y values
@@ -260,15 +359,28 @@ modify_data <- function(x, y, z,
 }
 
 
+
 # Generate data for two categories of z
+# overall positive corr, works nice
 set.seed(123)
 n <- 100
 z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
 x <- rnorm(n, 10, sd = 5) + 5*rbeta(n, 5, 3)
 y <- 2*x + rnorm(n, 5, sd = 4)
 t = c(-0.8, -0.8, -0.8) 
-res = modify_data(x, y, z, t, sd_x = 0.1, sd_y = 0.1, lambda3 = 0.5)
+res = modify_data(x, y, z, t, sd_x = 0.1, sd_y = 0.1, lambda4 = 5)
+cor(res$y_original, res$x_original)
+cor(res$y_transformed, res$x_transformed)
+cor(res$y_optimized, res$x_optimized)
 
+# overall negative corr, doesn't work nice
+set.seed(123)
+n <- 100
+z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
+x <- rnorm(n, 10, sd = 5) + 5*rbeta(n, 5, 3)
+y <- -2*x + rnorm(n, 5, sd = 4)
+t = c(0.8, 0.8, 0.8) 
+res = modify_data(x, y, z, t, sd_x = 0.1, sd_y = 0.1, lambda4 = 5)
 cor(res$y_original, res$x_original)
 cor(res$y_transformed, res$x_transformed)
 cor(res$y_optimized, res$x_optimized)
@@ -345,5 +457,50 @@ cat("Real Dataset 2: mtcars (mpg and hp by gear)\n")
 cat("Real Dataset 3: diamonds (Carat and Price by Cut)\n")
 
 
-# genetic algorithms: insteda of simulated annealing ....
+################################################################################
+################################### LSAP TRY ###################################
+################################################################################
+
+n <- 100
+z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
+x <- rnorm(n, 10, sd = 5) + 5*rbeta(n, 5, 3)
+y <- -2*x + rnorm(n, 5, sd = 4)
+
+get_optimal_grid <- function(x, y, z){
+  # Calculate quantiles for x and y based on z distribution
+  z_levels <- sort(unique(z))
+  x_quantiles <- quantile(x, probs = cumsum(table(z) / length(z)))
+  y_quantiles <- quantile(y, probs = cumsum(table(z) / length(z)))
+  k = length(unique(z))
+  res = matrix(rep(0, k^2), nrow = k)
+  for (i in seq_along(z_levels)) {
+    x_range <- if (i == 1) {
+      which(x <= x_quantiles[i])
+    } else {
+      which(x > x_quantiles[i - 1] & x <= x_quantiles[i])
+    }
+    for (j in seq_along(z_levels)) {
+      temp_y = y[x_range]
+      y_range <- if (j == 1) {
+        which(temp_y <= y_quantiles[j])
+      } else {
+        which(temp_y > y_quantiles[j - 1] & temp_y <= y_quantiles[j])
+      }
+      res[i, j] = length(y_range)
+      
+    }
+  }
+  # Convert the matrix to a cost matrix
+  M <- max(res)
+  cost_matrix <- M - res
+  
+  # Solve the assignment problem using the Hungarian algorithm
+  assignment <- solve_LSAP(cost_matrix)
+  
+  # Return the row and column indices of the selected cells
+  return(as.vector(assignment))
+}
+
+a = get_optimal_grid(x, y, z)
+
 
