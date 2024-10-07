@@ -642,28 +642,6 @@ modify_data <- function(x, y, z,
                          x_optimized = df_gen$x_optimized, 
                          y_optimized = df_gen$y_optimized)
   
-  # Plot original, copula-transformed, and simulated annealing results
-  p_orig <- ggplot(data.frame(x = x, y = y, z = z)) +
-    geom_point(aes(x = x, y = y, color = z)) +
-    theme_bw() + guides(color = "none") +
-    labs(title = "Original Data")
-  p1 <- ggMarginal(p_orig, type = "density")
-  
-  p_copula <- ggplot(df_composition) +
-    geom_point(aes(x = x, y = y, color = z)) +
-    theme_bw() + guides(color = "none") +
-    labs(title = "After Piecewise Copulas")
-  p2 <- ggMarginal(p_copula, type = "density")
-  
-  p_gen <- ggplot(df_gen) +
-    geom_point(aes(x = x_optimized, y = y_optimized, color = z)) +
-    theme_bw() + guides(color = "none") +
-    labs(title = "After Genetic Algorithm")
-  p3 <- ggMarginal(p_gen, type = "density")
-  
-  # Display all plots side by side
-  print(grid.arrange(p1, p2, p3, nrow = 1))
-  
   # Calculate total variation (TV) distance before and after annealing
   tv_initial <- calculate_tv_distance_empirical(x, df_composition$x) +
     calculate_tv_distance_empirical(y, df_composition$y)
@@ -674,23 +652,52 @@ modify_data <- function(x, y, z,
   cat("Total Variation Before GA: ", tv_initial, "\n")
   cat("Total Variation After GA: ", tv_final, "\n")
   
+  # Plot original, copula-transformed, and simulated annealing results
+  p_orig <- ggplot(data.frame(x = x, y = y, z = z)) +
+    geom_point(aes(x = x, y = y, color = z)) +
+    theme_bw() + guides(color = "none") +
+    labs(title = "Original Data", 
+         caption = str_c("Overall Correlation: ", round(cor(x, y), 3)))
+  p1 <- ggMarginal(p_orig, type = "density")
+  
+  p_copula <- ggplot(df_composition) +
+    geom_point(aes(x = x, y = y, color = z)) +
+    theme_bw() + guides(color = "none") +
+    labs(title = "After Piecewise Copulas", 
+         caption = str_c("Overall Correlation: ", 
+                         round(cor(df_composition$x, df_composition$y), 3), 
+                         "\nTV Distance: ", round(tv_initial, 3)))
+  p2 <- ggMarginal(p_copula, type = "density")
+  
+  p_gen <- ggplot(df_gen) +
+    geom_point(aes(x = x_optimized, y = y_optimized, color = z)) +
+    theme_bw() + guides(color = "none") +
+    labs(x = "x", y = "y", title = "After Genetic Algorithm", 
+         caption = str_c("Overall Correlation: ", 
+                         round(cor(df_gen$x, df_gen$y), 3), 
+                         "\nTV Distance: ", round(tv_final, 3)))
+  p3 <- ggMarginal(p_gen, type = "density")
+  
+  # Display all plots side by side
+  print(grid.arrange(p1, p2, p3, nrow = 1))
+  
   # Return the combined dataframe containing all the transformations
   return(df_final)
 }
 
 
 # Generate data for two categories of z
-set.seed(123)
-n <- 100
+set.seed(42)
+n <- 300
 z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
 x <- rnorm(n, 10, sd = 5) + 5*rbeta(n, 5, 3)
 y <- 2*x + rnorm(n, 5, sd = 4)
-t = c(0.9, 0.7, 0.5) 
+t = c(-0.8, 0.8, -0.8) 
 res = modify_data(x, y, z, t, sel_parents_fn = select_parents_tournament,
                   mutation_prob = 0.5, 
                   crossover_fn = crossover_trad_z,
-                  mutate_fn = mutate_corr_adjust, lambda4 = 10,
-                  num_generations = 100)
+                  mutate_fn = mutate_corr_adjust, lambda4 = 40,
+                  num_generations = 200)
 cor(res$y_original, res$x_original)
 cor(res$y_transformed, res$x_transformed)
 cor(res$y_optimized, res$x_optimized)

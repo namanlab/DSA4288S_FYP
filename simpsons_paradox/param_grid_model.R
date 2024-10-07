@@ -78,6 +78,7 @@ get_optimal_grid <- function(x, y, z){
   # Convert the matrix to a cost matrix
   M <- max(res)
   cost_matrix <- M - res
+  print(res)
   
   # Solve the assignment problem using the Hungarian algorithm
   assignment <- solve_LSAP(cost_matrix)
@@ -322,28 +323,6 @@ modify_data <- function(x, y, z,
                          x_optimized = df_annealing$x_optimized, 
                          y_optimized = df_annealing$y_optimized)
   
-  # Plot original, copula-transformed, and simulated annealing results
-  p_orig <- ggplot(data.frame(x = x, y = y, z = z)) +
-    geom_point(aes(x = x, y = y, color = z)) +
-    theme_bw() + guides(color = "none") +
-    labs(title = "Original Data")
-  p1 <- ggMarginal(p_orig, type = "density")
-  
-  p_copula <- ggplot(df_composition) +
-    geom_point(aes(x = x, y = y, color = z)) +
-    theme_bw() + guides(color = "none") +
-    labs(title = "After Piecewise Copulas")
-  p2 <- ggMarginal(p_copula, type = "density")
-  
-  p_anneal <- ggplot(df_annealing) +
-    geom_point(aes(x = x_optimized, y = y_optimized, color = z)) +
-    theme_bw() + guides(color = "none") +
-    labs(title = "After Simulated Annealing")
-  p3 <- ggMarginal(p_anneal, type = "density")
-  
-  # Display all plots side by side
-  print(grid.arrange(p1, p2, p3, nrow = 1))
-  
   # Calculate total variation (TV) distance before and after annealing
   tv_initial <- calculate_tv_distance_empirical(x, df_composition$x) +
     calculate_tv_distance_empirical(y, df_composition$y)
@@ -354,6 +333,36 @@ modify_data <- function(x, y, z,
   cat("Total Variation Before Annealing: ", tv_initial, "\n")
   cat("Total Variation After Annealing: ", tv_final, "\n")
   
+  
+  # Plot original, copula-transformed, and simulated annealing results
+  p_orig <- ggplot(data.frame(x = x, y = y, z = z)) +
+    geom_point(aes(x = x, y = y, color = z)) +
+    theme_bw() + guides(color = "none") +
+    labs(title = "Original Data", 
+         caption = str_c("Overall Correlation: ", round(cor(x, y), 3)))
+  p1 <- ggMarginal(p_orig, type = "density")
+  
+  p_copula <- ggplot(df_composition) +
+    geom_point(aes(x = x, y = y, color = z)) +
+    theme_bw() + guides(color = "none") +
+    labs(title = "After Piecewise Copulas", 
+         caption = str_c("Overall Correlation: ", 
+                         round(cor(df_composition$x, df_composition$y), 3), 
+                         "\nTV Distance: ", round(tv_initial, 3)))
+  p2 <- ggMarginal(p_copula, type = "density")
+  
+  p_anneal <- ggplot(df_annealing) +
+    geom_point(aes(x = x_optimized, y = y_optimized, color = z)) +
+    theme_bw() + guides(color = "none") +
+    labs(x = "x", y = "y", title = "After Simulated Annealing", 
+         caption = str_c("Overall Correlation: ", 
+                         round(cor(df_annealing$x, df_annealing$y), 3), 
+                         "\nTV Distance: ", round(tv_final, 3)))
+  p3 <- ggMarginal(p_anneal, type = "density")
+  
+  # Display all plots side by side
+  print(grid.arrange(p1, p2, p3, nrow = 1))
+  
   # Return the combined dataframe containing all the transformations
   return(df_final)
 }
@@ -363,17 +372,82 @@ modify_data <- function(x, y, z,
 # Generate data for two categories of z
 # overall positive corr, works nice
 set.seed(123)
-n <- 100
+n <- 300
 z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
 x <- rnorm(n, 10, sd = 5) + 5*rbeta(n, 5, 3)
 y <- 2*x + rnorm(n, 5, sd = 4)
-t = c(-0.8, -0.8, -0.8) 
-res = modify_data(x, y, z, t, sd_x = 0.1, sd_y = 0.1, lambda4 = 5)
+t = c(-0.8, 0.8, -0.8) 
+res = modify_data(x, y, z, t, sd_x = 0.07, sd_y = 0.07, lambda4 = 5)
+
+
+#### Plot outcome against the stanard deviation of variance:
+sdi_vec = seq(0, 0.2, 0.04)
+pl <- list()
+tvl = rep(0, length(sdi_vec))
+i = 1
+for (sdi in sdi_vec){
+  res = modify_data(x, y, z, t, sd_x = sdi, sd_y = sdi)
+  tv_final = calculate_tv_distance_empirical(x, res$x_optimized) +
+    calculate_tv_distance_empirical(y, res$y_optimized)
+  p_anneal <-  ggplot(data.frame(x = res$x_optimized, y = res$y_optimized, z = res$z)) +
+    geom_point(aes(x = x, y = y, color = z)) +
+    theme_bw() + guides(color = "none") +
+    labs(title = str_c("After SL with sd_x = sd_y = ", sdi), 
+         caption = str_c("Overall Correlation: ", 
+                         round(cor(res$x_optimized, res$y_optimized), 3), 
+                         "\nTV Distance: ", round(tv_final, 3)))
+  p3 <- ggMarginal(p_anneal, type = "density")
+  pl[[i]] = p3
+  tvl[i] = tv_final
+  i = i + 1
+}
+grid.arrange(grobs = pl, nrow = 2)
+sdi_vec = seq(0, 0.5, 0.01)
+tvl = rep(0, length(sdi_vec))
+cors = rep(0, length(sdi_vec))
+i = 1
+for (sdi in sdi_vec){
+  res = modify_data(x, y, z, t, sd_x = sdi, sd_y = sdi)
+  tv_final = calculate_tv_distance_empirical(x, res$x_optimized) +
+    calculate_tv_distance_empirical(y, res$y_optimized)
+  cor_final = cor(res$x_optimized, res$y_optimized)
+  tvl[i] = tv_final
+  cors[i] = cor_final
+  i = i + 1
+}
+data.frame(sd = sdi_vec, tv = tvl, cor = cors) %>%
+  ggplot(aes(x = sd)) +
+  geom_line(aes(y = tv, color = "TVx + TVy"), size = 1) +  # Line for TV
+  geom_line(aes(y = cor/2.5, color = "Correlation"), size = 1) +  # Line for correlation (scaled)
+  scale_y_continuous(
+    name = "TVx + TVy",  # Left y-axis
+    sec.axis = sec_axis(~.*2.5, name = "Correlation")  # Right y-axis with scaling
+  ) +
+  scale_color_manual(values = c("TVx + TVy" = "blue", "Correlation" = "red")) +  # Custom colors for lines
+  labs(x = "Standard Deviation of Gaussian Noise", title = "TV vs Correlation with Gaussian Noise") +
+  theme_bw() +
+  theme(
+    axis.title.y = element_text(color = "blue"),
+    axis.title.y.right = element_text(color = "red"),
+    legend.position = "bottom"
+  )
+
+
+
+
+## Standrad deviatyion of gaussian noise vs density plot and TV:
+set.seed(123)
+n <- 300
+z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
+x <- rnorm(n, 10, sd = 5) + 5*rbeta(n, 5, 3)
+y <- 2*x + rnorm(n, 5, sd = 4)
+t = c(-0.8, 0.8, -0.8) 
+res = modify_data(x, y, z, t, sd_x = 0.07, sd_y = 0.07, lambda4 = 5)
 cor(res$y_original, res$x_original)
 cor(res$y_transformed, res$x_transformed)
 cor(res$y_optimized, res$x_optimized)
 
-# overall negative corr, doesn't work nice
+# overall negative corr, figures out :)
 set.seed(123)
 n <- 100
 z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
@@ -426,7 +500,7 @@ x4 <- iris_data$Sepal.Length
 y4 <- iris_data$Petal.Length
 z4 <- iris_data$Species
 t4 <- c(-0.6, -0.7, -0.5)
-res4 <- modify_data(x4, y4, z4, t4, sd_x = 0.05, sd_y = 0.05)
+res4 <- modify_data(x4, y4, z4, t4, sd_x = 0.02, sd_y = 0.02)
 
 # 5. mtcars Dataset: Miles Per Gallon (mpg) and Horsepower (hp) with Number of Gears (gear) as categories
 cat("\nRunning on Real Dataset 2 (mtcars)...\n")
@@ -434,8 +508,11 @@ mtcars_data <- mtcars
 x5 <- mtcars_data$mpg
 y5 <- mtcars_data$hp
 z5 <- as.factor(mtcars_data$gear)
-t5 <- c(-0.5, -0.6, -0.7)
+t5 <- c(0.5, 0.6, 0.7)
 res5 <- modify_data(x5, y5, z5, t5, sd_x = 0.1, sd_y = 0.1)
+get_optimal_grid(x5, y5, z5)
+# LSAP works, but not the most desired reuslt, so can manually specify to!
+res5 <- modify_data(x5, y5, z5, t5, sd_x = 0.1, sd_y = 0.1, order_vec = 3:1)
 
 # 6. diamonds Dataset: Carat and Price with Cut as categories (from ggplot2)
 cat("\nRunning on Real Dataset 3 (diamonds)...\n")
@@ -502,5 +579,6 @@ get_optimal_grid <- function(x, y, z){
 }
 
 a = get_optimal_grid(x, y, z)
+
 
 

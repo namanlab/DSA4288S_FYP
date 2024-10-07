@@ -198,6 +198,20 @@ evaluate_performance_corr <- function(x1, x2, target_corr_kendall) {
 }
 
 
+# 6. Function to calculate smoothess based on total variation
+total_variation_smoothness <- function(f, x_range, n_points = 1000) {
+  x_vals <- seq(x_range[1], x_range[2], length.out = n_points)
+  f_vals <- sapply(x_vals, f)
+  v <- diff(f_vals)
+  
+  # Calculate the total variation as the sum of absolute differences
+  variation <- sd(v)
+  
+  return(variation)
+}
+
+
+
 
 ################################################################################
 ################################################################################
@@ -205,14 +219,9 @@ evaluate_performance_corr <- function(x1, x2, target_corr_kendall) {
 ################################################################################
 ################################################################################
 
-
-################################################################################
-############################# KNOWN GENERATING FN ##############################
-################################################################################
-
 evaluate_copulas_and_inverse_cdfs_parametric <- function(target_corr_kendall,
-                                              distribution_1, distribution_2, copula_type, 
-                                              inv_cdf_type, n = 1000, n_test = 100000) {
+                                                         distribution_1, distribution_2, copula_type, 
+                                                         inv_cdf_type, n = 1000, n_test = 100000) {
   
   # Generate original data
   d1 <- distribution_1(n)
@@ -233,21 +242,6 @@ evaluate_copulas_and_inverse_cdfs_parametric <- function(target_corr_kendall,
     res <- amh_copula_2(n, target_corr_kendall)
   } else {
     stop("Unsupported copula type")
-  }
-  
-  if (all(is.na(res))){
-    results <- list(
-      inv_cdf_eval_1 = list(NA),
-      inv_cdf_eval_2 = list(NA),
-      tv_result_1 = list(NA),
-      tv_result_2 = list(NA),
-      ks_test_result_1 = list(NA),
-      ks_test_result_2 = list(NA),
-      cvm_test_result_1 = list(NA),
-      cvm_test_result_2 = list(NA),
-      corr_change_test = list(NA)
-    )
-    return(results)
   }
   
   # Apply chosen inverse CDF
@@ -275,9 +269,13 @@ evaluate_copulas_and_inverse_cdfs_parametric <- function(target_corr_kendall,
   x1 <- F1Inv(res[,1])
   x2 <- F2Inv(res[,2])
   
+  # smoothness
+  s1 <- total_variation_smoothness(F1Inv, c(0, 1)) 
+  s2 <- total_variation_smoothness(F2Inv, c(0, 1))
+  
   # Evaluate performance of inverse CDFs
-  inv_cdf_eval_1 <- evaluate_inv_cdf(distribution_1, inv_cdf_d1, n_test)
-  inv_cdf_eval_2 <- evaluate_inv_cdf(distribution_2, inv_cdf_d2, n_test)
+  # inv_cdf_eval_1 <- evaluate_inv_cdf(distribution_1, inv_cdf_d1, n_test)
+  # inv_cdf_eval_2 <- evaluate_inv_cdf(distribution_2, inv_cdf_d2, n_test)
   
   # Calculate TV Distance
   tv_result_1 <- calculate_tv_distance_knownfn(distribution_1, x1, n_test)
@@ -292,293 +290,21 @@ evaluate_copulas_and_inverse_cdfs_parametric <- function(target_corr_kendall,
   cvm_test_result_2 <- perform_cvm_test_knownfn(distribution_2, x2, n_test)
   
   # Assess correlation changes
-  corr_change_test <- evaluate_performance_corr(x1, x2, target_corr_kendall)
+  # corr_change_test <- evaluate_performance_corr(x1, x2, target_corr_kendall)
   
   # Return all results
   results <- list(
-    inv_cdf_eval_1 = inv_cdf_eval_1,
-    inv_cdf_eval_2 = inv_cdf_eval_2,
+    s1 = s1, s2 = s2,
     tv_result_1 = tv_result_1,
     tv_result_2 = tv_result_2,
     ks_test_result_1 = ks_test_result_1,
     ks_test_result_2 = ks_test_result_2,
     cvm_test_result_1 = cvm_test_result_1,
-    cvm_test_result_2 = cvm_test_result_2,
-    corr_change_test = corr_change_test
+    cvm_test_result_2 = cvm_test_result_2
   )
   
   return(results)
 }
-
-
-set.seed(123)
-distribution_normal <- function(n) rnorm(n, mean = 0, sd = 1)
-distribution_exponential <- function(n) rexp(n, rate = 1)
-distribution_uniform <- function(n) runif(n, min = 0, max = 1)
-distribution_log_normal <- function(n) rlnorm(n, meanlog = 0, sdlog = 1)
-distribution_beta <- function(n) rbeta(n, shape1 = 2, shape2 = 5)
-distribution_t <- function(n) rt(n, df = 2)
-distribution_mixture1 <- function(n) {
-  prob <- runif(n)
-  rnorm(n, mean = ifelse(prob > 0.5, 3, -2), sd = 1)
-}
-distribution_mixture2 <- function(n) {
-  prob <- runif(n)
-  ifelse(prob > 0.5, rnorm(n, mean = 0, sd = 1), rlnorm(n, meanlog = 0, sdlog = 0.5))
-}
-
-# PARAM SPACE
-target_corr_kendall <- seq(-1, 1, 0.1)
-distributions <- list(
-  normal = distribution_normal,
-  exponential = distribution_exponential,
-  uniform = distribution_uniform,
-  log_normal = distribution_log_normal,
-  beta = distribution_beta,
-  student_t = distribution_t,
-  mixture1 = distribution_mixture1,
-  mixture2 = distribution_mixture2
-)
-inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "linear", "poly", "akima")
-copula_types <- c("gaussian", "t")
-n_range <- c(100, 1000, 10000)
-
-
-results <- NULL
-iter = 0
-for (n_val in n_range){
-  for (tau in target_corr_kendall) {
-    for (dist_name_1 in names(distributions)) {
-      for (dist_name_2 in names(distributions)) {
-        for (inv_cdf_type in inv_cdf_types) {
-          for (copula_type in copula_types) {
-            
-            result <- evaluate_copulas_and_inverse_cdfs_parametric(
-              target_corr_kendall = tau,
-              distribution_1 = distributions[[dist_name_1]],
-              distribution_2 = distributions[[dist_name_2]],
-              copula_type = copula_type,
-              inv_cdf_type = inv_cdf_type,
-              n = n_val
-            )
-            print(iter)
-            iter = iter + 1
-            # Store results in a data frame
-            temp_result <- data.frame(
-              n = n_val,
-              target_corr_kendall = tau,
-              distribution_1 = dist_name_1,
-              distribution_2 = dist_name_2,
-              inv_cdf_type = inv_cdf_type,
-              copula_type = copula_type,
-              mse_inv_cdf_1 = result$inv_cdf_eval_1$MSE,
-              mae_inv_cdf_1 = result$inv_cdf_eval_1$MAE,
-              mse_inv_cdf_2 = result$inv_cdf_eval_2$MSE,
-              mae_inv_cdf_2 = result$inv_cdf_eval_2$MAE,
-              tv_val_1 = result$tv_result_1$tv_distance,
-              tv_val_2 = result$tv_result_2$tv_distance,
-              ks_stat_1 = result$ks_test_result_1$ks_test_result$statistic,
-              ks_stat_2 = result$ks_test_result_2$ks_test_result$statistic,
-              cvm_stat_1 = result$cvm_test_result_1$CramerVonMises$statistic,
-              cvm_stat_2 = result$cvm_test_result_2$CramerVonMises$statistic,
-              err_kendall = result$corr_change_test$err_kendall
-            )
-            results <- bind_rows(results, temp_result)
-          }
-        }
-      }
-    }
-  }
-}
-
-
-
-# Save the results
-write.csv(results, "results/final_eval_known_fn.csv")
-
-
-
-
-
-################################ AGAINST COPULA ################################ 
-
-results = read_csv("results/final_eval_known_fn.csv")
-
-# MSE
-results %>% group_by(copula_type, inv_cdf_type, distribution_1, distribution_2) %>%
-  summarise(mean_mse_inv_cdf = mean(c(mse_inv_cdf_1, mse_inv_cdf_2)),
-            mean_mae_inv_cdf = mean(c(mae_inv_cdf_1, mae_inv_cdf_2)),
-            mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  ggplot() +
-  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_mse_inv_cdf)) +
-  facet_grid(copula_type~inv_cdf_type) +
-  guides(fill = guide_legend(override.aes = list(size = 10)))  +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
-  labs(fill = "Err", x = "", y = "")
-
-# MAE
-results %>% group_by(copula_type, inv_cdf_type, distribution_1, distribution_2) %>%
-  summarise(mean_mse_inv_cdf = mean(c(mse_inv_cdf_1, mse_inv_cdf_2)),
-            mean_mae_inv_cdf = mean(c(mae_inv_cdf_1, mae_inv_cdf_2)),
-            mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  ggplot() +
-  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_mae_inv_cdf)) +
-  facet_grid(copula_type~inv_cdf_type) +
-  guides(fill = guide_legend(override.aes = list(size = 10)))  +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
-  labs(fill = "Err", x = "", y = "")
-
-# TV DIST
-results %>% group_by(copula_type, inv_cdf_type, distribution_1, distribution_2) %>%
-  summarise(mean_mse_inv_cdf = mean(c(mse_inv_cdf_1, mse_inv_cdf_2)),
-            mean_mae_inv_cdf = mean(c(mae_inv_cdf_1, mae_inv_cdf_2)),
-            mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  ggplot() +
-  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_tv)) +
-  facet_grid(copula_type~inv_cdf_type) +
-  guides(fill = guide_legend(override.aes = list(size = 10)))  +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient(low = "white", high = "red") +
-  labs(fill = "Err", x = "", y = "")
-
-# KS STAT
-results %>% group_by(copula_type, inv_cdf_type, distribution_1, distribution_2) %>%
-  summarise(mean_mse_inv_cdf = mean(c(mse_inv_cdf_1, mse_inv_cdf_2)),
-            mean_mae_inv_cdf = mean(c(mae_inv_cdf_1, mae_inv_cdf_2)),
-            mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  ggplot() +
-  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_ks_stat)) +
-  facet_grid(copula_type~inv_cdf_type) +
-  guides(fill = guide_legend(override.aes = list(size = 10)))  +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient(low = "white", high = "red") +
-  labs(fill = "Err", x = "", y = "")
-
-# CVM STAT
-results %>% group_by(copula_type, inv_cdf_type, distribution_1, distribution_2) %>%
-  summarise(mean_mse_inv_cdf = mean(c(mse_inv_cdf_1, mse_inv_cdf_2)),
-            mean_mae_inv_cdf = mean(c(mae_inv_cdf_1, mae_inv_cdf_2)),
-            mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  ggplot() +
-  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_cvm_stat)) +
-  facet_grid(copula_type~inv_cdf_type) +
-  guides(fill = guide_legend(override.aes = list(size = 10)))  +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
-  labs(fill = "Err", x = "", y = "")
-
-
-
-################################## AGAINST N ################################### 
-
-# MSE
-results %>% group_by(n, inv_cdf_type, distribution_1, distribution_2) %>%
-  summarise(mean_mse_inv_cdf = mean(c(mse_inv_cdf_1, mse_inv_cdf_2)),
-            mean_mae_inv_cdf = mean(c(mae_inv_cdf_1, mae_inv_cdf_2)),
-            mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  ggplot() +
-  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_mse_inv_cdf)) +
-  facet_grid(n~inv_cdf_type) +
-  guides(fill = guide_legend(override.aes = list(size = 10)))  +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
-  labs(fill = "Err", x = "", y = "")
-
-# MAE
-results %>% group_by(n, inv_cdf_type, distribution_1, distribution_2) %>%
-  summarise(mean_mse_inv_cdf = mean(c(mse_inv_cdf_1, mse_inv_cdf_2)),
-            mean_mae_inv_cdf = mean(c(mae_inv_cdf_1, mae_inv_cdf_2)),
-            mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  ggplot() +
-  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_mae_inv_cdf)) +
-  facet_grid(n~inv_cdf_type) +
-  guides(fill = guide_legend(override.aes = list(size = 10)))  +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
-  labs(fill = "Err", x = "", y = "")
-
-# TV DIST
-results %>% group_by(n, inv_cdf_type, distribution_1, distribution_2) %>%
-  summarise(mean_mse_inv_cdf = mean(c(mse_inv_cdf_1, mse_inv_cdf_2)),
-            mean_mae_inv_cdf = mean(c(mae_inv_cdf_1, mae_inv_cdf_2)),
-            mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  ggplot() +
-  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_tv)) +
-  facet_grid(n~inv_cdf_type) +
-  guides(fill = guide_legend(override.aes = list(size = 10)))  +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
-  labs(fill = "Err", x = "", y = "")
-
-# KS STAT
-results %>% group_by(n, inv_cdf_type, distribution_1, distribution_2) %>%
-  summarise(mean_mse_inv_cdf = mean(c(mse_inv_cdf_1, mse_inv_cdf_2)),
-            mean_mae_inv_cdf = mean(c(mae_inv_cdf_1, mae_inv_cdf_2)),
-            mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  ggplot() +
-  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_ks_stat)) +
-  facet_grid(n~inv_cdf_type) +
-  guides(fill = guide_legend(override.aes = list(size = 10)))  +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
-  labs(fill = "Err", x = "", y = "")
-
-# CVM STAT
-results %>% group_by(n, inv_cdf_type, distribution_1, distribution_2) %>%
-  summarise(mean_mse_inv_cdf = mean(c(mse_inv_cdf_1, mse_inv_cdf_2)),
-            mean_mae_inv_cdf = mean(c(mae_inv_cdf_1, mae_inv_cdf_2)),
-            mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  ggplot() +
-  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_cvm_stat)) +
-  facet_grid(n~inv_cdf_type) +
-  guides(fill = guide_legend(override.aes = list(size = 10)))  +
-  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
-  labs(fill = "Err", x = "", y = "")
-
-
-
-
-
-
-
-
-
-
-
-
-
-################################################################################
-############################# ACTUAL DATA BOOTSTRAP ############################
-################################################################################
-
-
-
-
-
-
 
 evaluate_copulas_and_inverse_cdfs_bootstrap <- function(target_corr_kendall,
                                                         sampled_x1, sampled_x2, 
@@ -602,19 +328,6 @@ evaluate_copulas_and_inverse_cdfs_bootstrap <- function(target_corr_kendall,
     res <- amh_copula_2(n, target_corr_kendall)
   } else {
     stop("Unsupported copula type")
-  }
-  
-  if (all(is.na(res))){
-    results <- list(
-      tv_result_1 = list(NA),
-      tv_result_2 = list(NA),
-      ks_test_result_1 = list(NA),
-      ks_test_result_2 = list(NA),
-      cvm_test_result_1 = list(NA),
-      cvm_test_result_2 = list(NA),
-      corr_change_test = list(NA)
-    )
-    return(results)
   }
   
   # Apply chosen inverse CDF
@@ -642,6 +355,10 @@ evaluate_copulas_and_inverse_cdfs_bootstrap <- function(target_corr_kendall,
   x1 <- F1Inv(res[,1])
   x2 <- F2Inv(res[,2])
   
+  # smoothness
+  s1 <- total_variation_smoothness(F1Inv, c(0, 1)) 
+  s2 <- total_variation_smoothness(F2Inv, c(0, 1))
+  
   # Calculate TV Distance
   tv_result_1 <- calculate_tv_distance_empirical(act_x1, x1)
   tv_result_2 <- calculate_tv_distance_empirical(act_x2, x2)
@@ -655,26 +372,192 @@ evaluate_copulas_and_inverse_cdfs_bootstrap <- function(target_corr_kendall,
   cvm_test_result_2 <- perform_cvm_test_empirical(act_x2, x2)
   
   # Assess correlation changes
-  corr_change_test <- evaluate_performance_corr(x1, x2, target_corr_kendall)
+  # corr_change_test <- evaluate_performance_corr(x1, x2, target_corr_kendall)
   
   # Return all results
   results <- list(
+    s1 = s1, s2 = s2,
     tv_result_1 = tv_result_1,
     tv_result_2 = tv_result_2,
     ks_test_result_1 = ks_test_result_1,
     ks_test_result_2 = ks_test_result_2,
     cvm_test_result_1 = cvm_test_result_1,
-    cvm_test_result_2 = cvm_test_result_2,
-    corr_change_test = corr_change_test
+    cvm_test_result_2 = cvm_test_result_2
   )
   
   return(results)
 }
 
 
+################################################################################
+############################# KNOWN GENERATING FN ##############################
+################################################################################
+
+
+
+set.seed(123)
+distribution_normal <- function(n) rnorm(n, mean = 0, sd = 1)
+distribution_exponential <- function(n) rexp(n, rate = 1)
+distribution_uniform <- function(n) runif(n, min = 0, max = 1)
+distribution_log_normal <- function(n) rlnorm(n, meanlog = 0, sdlog = 1)
+distribution_beta <- function(n) rbeta(n, shape1 = 2, shape2 = 5)
+distribution_t <- function(n) rt(n, df = 2)
+distribution_mixture1 <- function(n) {
+  prob <- runif(n)
+  rnorm(n, mean = ifelse(prob > 0.5, 3, -2), sd = 1)
+}
+distribution_mixture2 <- function(n) {
+  prob <- runif(n)
+  ifelse(prob > 0.5, rnorm(n, mean = 0, sd = 1), rlnorm(n, meanlog = 0, sdlog = 0.5))
+}
+
 # PARAM SPACE
-target_corr_kendall <- seq(-1, 1, 0.1)
-# Define datasets with relevant numeric columns, sorted by number of observations
+target_corr_kendall <- seq(-1, 1, 0.2)
+distributions <- list(
+  normal = distribution_normal,
+  exponential = distribution_exponential,
+  uniform = distribution_uniform,
+  log_normal = distribution_log_normal,
+  beta = distribution_beta,
+  student_t = distribution_t,
+  mixture1 = distribution_mixture1,
+  mixture2 = distribution_mixture2
+)
+inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "poly", "akima")
+copula_types <- c("gaussian", "t")
+n_range <- c(100, 1000, 10000)
+
+
+results_sim <- NULL
+for (n_val in n_range){
+  for (tau in target_corr_kendall) {
+    for (dist_name_1 in names(distributions)) {
+      for (dist_name_2 in names(distributions)) {
+        for (inv_cdf_type in inv_cdf_types) {
+          for (copula_type in copula_types) {
+            result <- evaluate_copulas_and_inverse_cdfs_parametric(
+              target_corr_kendall = tau,
+              distribution_1 = distributions[[dist_name_1]],
+              distribution_2 = distributions[[dist_name_2]],
+              copula_type = copula_type,
+              inv_cdf_type = inv_cdf_type,
+              n = n_val
+            )
+            print(paste("n_val:", n_val, "tau:", tau, "dist_name_1:", dist_name_1, "dist_name_2:", dist_name_2,  "inv_cdf_type:", inv_cdf_type, "copula_type:", copula_type))
+            # Store results in a data frame
+            temp_result <- data.frame(
+              n = n_val,
+              target_corr_kendall = tau,
+              distribution_1 = dist_name_1,
+              distribution_2 = dist_name_2,
+              inv_cdf_type = inv_cdf_type,
+              copula_type = copula_type,
+              tv_val_1 = result$tv_result_1$tv_distance,
+              tv_val_2 = result$tv_result_2$tv_distance,
+              ks_stat_1 = result$ks_test_result_1$ks_test_result$statistic,
+              ks_stat_2 = result$ks_test_result_2$ks_test_result$statistic,
+              cvm_stat_1 = result$cvm_test_result_1$CramerVonMises$statistic,
+              cvm_stat_2 = result$cvm_test_result_2$CramerVonMises$statistic,
+              smoothness_1 = result$s1,
+              smoothness_2 = result$s2
+            )
+            results_sim <- bind_rows(results_sim, temp_result)
+          }
+        }
+      }
+    }
+  }
+}
+
+
+
+# Save the results
+write.csv(results_sim, "results/final/sim.csv")
+
+
+################################ AGAINST COPULA ################################ 
+
+df_plot_sim1 = results_sim %>% group_by(copula_type, inv_cdf_type, distribution_1, distribution_2) %>%
+  summarise(mean_tv = mean(c(tv_val_1, tv_val_2)),
+            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
+            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2)),
+            mean_sm = mean(c(smoothness_1, smoothness_2)))
+
+# TV DIST
+df_plot_sim1 %>%
+  ggplot() +
+  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_tv)) +
+  facet_grid(copula_type~inv_cdf_type) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(fill = "TV", x = "", y = "")
+
+# KS STAT
+df_plot_sim1 %>%
+  ggplot() +
+  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_ks_stat)) +
+  facet_grid(copula_type~inv_cdf_type) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(fill = "KS", x = "", y = "")
+
+# CVM STAT
+df_plot_sim1 %>%
+  ggplot() +
+  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_cvm_stat)) +
+  facet_grid(copula_type~inv_cdf_type) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
+  labs(fill = "CVM", x = "", y = "")
+
+# Smoothness
+df_plot_sim1 %>%
+  ggplot() +
+  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_sm)) +
+  facet_grid(copula_type~inv_cdf_type) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
+  labs(fill = "Smoothness", x = "", y = "")
+
+
+# TV DIST and SM
+p1 <- df_plot_sim1 %>%
+  filter(copula_type == "gaussian") %>%
+  ggplot() +
+  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_tv)) +
+  facet_grid(~inv_cdf_type) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(fill = "TV", x = "", y = "")
+p2 <- df_plot_sim1 %>%
+  filter(copula_type == "gaussian") %>%
+  ggplot() +
+  geom_tile(aes(x = distribution_1, y = distribution_2, fill = mean_sm)) +
+  facet_grid(copula_type~inv_cdf_type) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
+  labs(fill = "Smoothness", x = "", y = "")
+grid.arrange(p1, p2)
+
+
+
+
+
+
+
+################################################################################
+############################# ACTUAL DATA BOOTSTRAP ############################
+################################################################################
+
+
+# PARAM SPACE
+target_corr_kendall <- seq(-1, 1, 0.2)
 # Define datasets with relevant numeric columns, sorted by number of observations
 datasets <- list(
   # Trees dataset (31 observations)
@@ -734,16 +617,13 @@ datasets <- list(
   # Diamonds dataset (5000 observations)
   diamonds_df = diamonds %>% sample_n(5000) %>% 
     dplyr::select(x1 = carat, x2 = price) %>% as.data.frame()
-
-  
 )
 
-
-inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "linear", "poly", "akima")
+inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "poly", "akima")
 copula_types <- c("gaussian", "t")
-bootstap_size = 50
+bootstap_size = 10
 
-results <- NULL
+results_bs_np <- NULL
 iter = 0
 for (tau in target_corr_kendall) {
   for (inv_cdf_type in inv_cdf_types) {
@@ -777,9 +657,10 @@ for (tau in target_corr_kendall) {
             ks_stat_2 = result$ks_test_result_2$ks_test_result$statistic,
             cvm_stat_1 = result$cvm_test_result_1$CramerVonMises$statistic,
             cvm_stat_2 = result$cvm_test_result_2$CramerVonMises$statistic,
-            err_kendall = result$corr_change_test$err_kendall
+            smoothness_1 = result$s1,
+            smoothness_2 = result$s2
           )
-          results <- bind_rows(results, temp_result)
+          results_bs_np <- bind_rows(results_bs_np, temp_result)
         }
       }
     }
@@ -788,7 +669,7 @@ for (tau in target_corr_kendall) {
 
 
 # Save the results
-write.csv(results, "results/final_eval_bootstrap.csv", row.names = F)
+write.csv(results_bs_np, "results/final/bs_np.csv", row.names = F)
 
 
 
@@ -796,7 +677,7 @@ write.csv(results, "results/final_eval_bootstrap.csv", row.names = F)
 ############################# PARAMETRIC BOOTSTRAP ############################
 ################################################################################
 
-results <- NULL
+results_bs_p <- NULL
 iter = 0
 for (tau in target_corr_kendall) {
   for (inv_cdf_type in inv_cdf_types) {
@@ -835,9 +716,10 @@ for (tau in target_corr_kendall) {
             ks_stat_2 = result$ks_test_result_2$ks_test_result$statistic,
             cvm_stat_1 = result$cvm_test_result_1$CramerVonMises$statistic,
             cvm_stat_2 = result$cvm_test_result_2$CramerVonMises$statistic,
-            err_kendall = result$corr_change_test$err_kendall
+            smoothness_1 = result$s1,
+            smoothness_2 = result$s2
           )
-          results <- bind_rows(results, temp_result)
+          results_bs_p  <- bind_rows(results_bs_p , temp_result)
         }
       }
     }
@@ -847,134 +729,173 @@ for (tau in target_corr_kendall) {
 
 
 # Save the results
-write.csv(results, "results/final_eval_param_bootstrap.csv", row.names = F)
+write.csv(results_bs_p , "results/final/bs_p.csv", row.names = F)
 
 
-################################################################################
-############################# Visualizations ############################
-################################################################################
+################################ Visualizations ################################
 
-results_1 = read_csv( "results/final_eval_param_bootstrap.csv")
-results_2 = read_csv( "results/final_eval_bootstrap.csv")
+df_plot_bs_np = results_bs_np %>% group_by(copula_type, inv_cdf_type, dataset) %>%
+  summarise(mean_tv = mean(c(tv_val_1, tv_val_2)),
+            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
+            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2)),
+            mean_sm = mean(c(smoothness_1, smoothness_2))) %>%
+  mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
+  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) 
 
+df_plot_bs_p = results_bs_p %>% group_by(copula_type, inv_cdf_type, dataset) %>%
+  summarise(mean_tv = mean(c(tv_val_1, tv_val_2)),
+            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
+            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2)),
+            mean_sm = mean(c(smoothness_1, smoothness_2))) %>%
+  mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
+  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]])))
+  
 # TV Distance
-results_1 %>% group_by(copula_type, inv_cdf_type, dataset) %>%
-  summarise(mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
-  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) %>%
+df_plot_bs_np %>%
   ggplot() + theme_bw() +
   geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_tv)) +
   facet_wrap(~copula_type) +
   guides(fill = guide_legend(override.aes = list(size = 10)))  +
   theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   scale_fill_gradient(low = "white", high = "red") +
-  labs(fill = "Err", x = "", y = "")
-results_2 %>% group_by(copula_type, inv_cdf_type, dataset) %>%
-  summarise(mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
-  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) %>%
-  ggplot() + theme_bw() +
+  labs(fill = "TV", x = "", y = "")
+
+df_plot_bs_p %>% ggplot() + theme_bw() +
   geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_tv)) +
   facet_wrap(~copula_type) +
   guides(fill = guide_legend(override.aes = list(size = 10)))  +
   theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   scale_fill_gradient(low = "white", high = "red") +
-  labs(fill = "Err", x = "", y = "")
+  labs(fill = "TV", x = "", y = "")
 
 # KS Distance
-results_1 %>% group_by(copula_type, inv_cdf_type, dataset) %>%
-  summarise(mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
-  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) %>%
+df_plot_bs_np %>%
   ggplot() + theme_bw() +
   geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_ks_stat)) +
   facet_wrap(~copula_type) +
   guides(fill = guide_legend(override.aes = list(size = 10)))  +
   theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   scale_fill_gradient(low = "white", high = "red") +
-  labs(fill = "Err", x = "", y = "")
-results_2 %>% group_by(copula_type, inv_cdf_type, dataset) %>%
-  summarise(mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[x]]))) %>%
-  ggplot() + theme_bw() +
+  labs(fill = "KS", x = "", y = "")
+
+df_plot_bs_p %>% ggplot() + theme_bw() +
   geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_ks_stat)) +
   facet_wrap(~copula_type) +
   guides(fill = guide_legend(override.aes = list(size = 10)))  +
   theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   scale_fill_gradient(low = "white", high = "red") +
-  labs(fill = "Err", x = "", y = "")
+  labs(fill = "KS", x = "", y = "")
 
 # CVM Distance
-results_1 %>% group_by(copula_type, inv_cdf_type, dataset) %>%
-  summarise(mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
-  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) %>%
+df_plot_bs_np %>%
   ggplot() + theme_bw() +
   geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_cvm_stat)) +
   facet_wrap(~copula_type) +
   guides(fill = guide_legend(override.aes = list(size = 10)))  +
   theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   scale_fill_gradient(low = "white", high = "red") +
-  labs(fill = "Err", x = "", y = "")
-results_2 %>% group_by(copula_type, inv_cdf_type, dataset) %>%
-  summarise(mean_tv = mean(c(tv_val_1, tv_val_2)),
-            mean_ks_stat = mean(c(ks_stat_1, ks_stat_2)),
-            mean_cvm_stat = mean(c(cvm_stat_1, cvm_stat_2))) %>%
-  mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
-  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) %>%
-  ggplot() + theme_bw() +
+  labs(fill = "CVM", x = "", y = "")
+
+df_plot_bs_p %>% ggplot() + theme_bw() +
   geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_cvm_stat)) +
   facet_wrap(~copula_type) +
   guides(fill = guide_legend(override.aes = list(size = 10)))  +
   theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
   scale_fill_gradient(low = "white", high = "red") +
-  labs(fill = "Err", x = "", y = "")
+  labs(fill = "CVM", x = "", y = "")
 
-# ERR KENDALL
-results_1 %>% group_by(copula_type, inv_cdf_type, dataset) %>%
-  summarise(mean_err_kendall = mean(err_kendall)) %>%
-  mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
-  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) %>%
+
+# Smoothness
+df_plot_bs_np %>%
   ggplot() + theme_bw() +
-  geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_err_kendall)) +
+  geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_sm)) +
   facet_wrap(~copula_type) +
   guides(fill = guide_legend(override.aes = list(size = 10)))  +
   theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient(low = "white", high = "red") +
-  labs(fill = "Err", x = "", y = "")
-results_2 %>% group_by(copula_type, inv_cdf_type, dataset) %>%
-  summarise(mean_err_kendall = mean(err_kendall)) %>%
-  mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
-  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) %>%
-  ggplot() + theme_bw() +
-  geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_err_kendall)) +
+  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
+  labs(fill = "Smoothness", x = "", y = "")
+
+df_plot_bs_p %>% ggplot() + theme_bw() +
+  geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_sm)) +
   facet_wrap(~copula_type) +
   guides(fill = guide_legend(override.aes = list(size = 10)))  +
   theme(legend.position = "bottom", axis.text.x = element_text(angle = 90, vjust = 0.5)) +
-  scale_fill_gradient(low = "white", high = "red") +
-  labs(fill = "Err", x = "", y = "")
+  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
+  labs(fill = "Smoothness", x = "", y = "")
 
+
+# TV DIST and SM
+p1 <- df_plot_bs_np %>%
+  filter(copula_type == "gaussian") %>%
+  ggplot() +
+  theme_bw() +
+  geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_tv)) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.5)) +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(fill = "TV", x = "", y = "") 
+p2 <- df_plot_bs_np %>%
+  filter(copula_type == "gaussian") %>%
+  ggplot() +
+  theme_bw() +
+  geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_sm)) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.5)) +
+  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
+  labs(fill = "Smoothness", x = "", y = "") 
+grid.arrange(p1, p2)
+
+
+p1 <- df_plot_bs_np %>%
+  filter(copula_type == "gaussian") %>%
+  ggplot() +
+  theme_bw() +
+  geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_tv)) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.5)) +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(fill = "TV", x = "", y = "") 
+p2 <- df_plot_bs_np %>%
+  filter(copula_type == "gaussian") %>%
+  ggplot() +
+  theme_bw() +
+  geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_sm)) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.5)) +
+  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
+  labs(fill = "Smoothness", x = "", y = "")
+grid.arrange(p1, p2)
+
+
+p1 <- df_plot_bs_p %>%
+  filter(copula_type == "gaussian") %>%
+  ggplot() +
+  theme_bw() +
+  geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_tv)) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.5)) +
+  scale_fill_gradient(low = "white", high = "red") +
+  labs(fill = "TV", x = "", y = "") 
+p2 <- df_plot_bs_p %>%
+  filter(copula_type == "gaussian") %>%
+  ggplot() +
+  theme_bw() +
+  geom_tile(aes(x = dataset, y = inv_cdf_type, fill = mean_sm)) +
+  guides(fill = guide_legend(override.aes = list(size = 10)))  +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.5)) +
+  scale_fill_gradient2(trans = "log10", low = "white", high = "darkred", mid = "red") +
+  labs(fill = "Smoothness", x = "", y = "")
+grid.arrange(p1, p2)
+
+
+## Rock df:
 
 
 
 
 ################################################################################
-############################# WHERE IS THE ERROR? ############################
+############################## WHERE IS THE ERROR? #############################
 ################################################################################
-
-
-
-
 
 
 
@@ -1000,19 +921,6 @@ plot_copulas_and_inverse_cdfs_bootstrap <- function(target_corr_kendall,
     res <- amh_copula_2(n, target_corr_kendall)
   } else {
     stop("Unsupported copula type")
-  }
-  
-  if (all(is.na(res))){
-    results <- list(
-      tv_result_1 = list(NA),
-      tv_result_2 = list(NA),
-      ks_test_result_1 = list(NA),
-      ks_test_result_2 = list(NA),
-      cvm_test_result_1 = list(NA),
-      cvm_test_result_2 = list(NA),
-      corr_change_test = list(NA)
-    )
-    return(results)
   }
   
   # Apply chosen inverse CDF
@@ -1042,6 +950,8 @@ plot_copulas_and_inverse_cdfs_bootstrap <- function(target_corr_kendall,
   
   # Return all results
   results <- list(
+    F1Inv = F1Inv,
+    F2Inv = F2Inv,
     act_x1 = act_x1,
     act_x2 = act_x2,
     x1 = x1,
@@ -1053,38 +963,15 @@ plot_copulas_and_inverse_cdfs_bootstrap <- function(target_corr_kendall,
 
 
 # PARAM SPACE
-target_corr_kendall <- seq(-1, 1, 0.2)
+target_corr_kendall <- 0.6
 # Define datasets with relevant numeric columns, sorted by number of observations
 # Define datasets with relevant numeric columns, sorted by number of observations
 datasets <- list(
-  # Trees dataset (31 observations)
-  trees_df = data.frame(
-    x1 = trees$Girth,
-    x2 = trees$Height
-  ),
-  
-  # Mtcars dataset (32 observations)
-  mtcars_df = data.frame(
-    x1 = mtcars$mpg,
-    x2 = mtcars$hp
-  ),
-  
-  # Swiss dataset (47 observations)
-  swiss_df = data.frame(
-    x1 = swiss$Fertility,
-    x2 = swiss$Agriculture
-  ),
   
   # Rock dataset (48 observations)
   rock_df = data.frame(
     x1 = rock$area,
     x2 = rock$peri
-  ),
-  
-  # USArrests dataset (50 observations)
-  USArrests_df = data.frame(
-    x1 = USArrests$Murder,
-    x2 = USArrests$Assault
   ),
   
   # Iris dataset (150 observations)
@@ -1093,35 +980,17 @@ datasets <- list(
     x2 = iris$Sepal.Width
   ),
   
-  # Airquality dataset (111 observations after removing NAs)
-  airquality_df = data.frame(
-    x1 = na.omit(airquality)$Ozone,
-    x2 = na.omit(airquality)$Wind
-  ),
-  
-  # Faithful dataset (272 observations)
-  faithful_df = data.frame(
-    x1 = faithful$eruptions,
-    x2 = faithful$waiting
-  ),
-  
-  # ChickWeight dataset (578 observations)
-  ChickWeight_df = data.frame(
-    x1 = ChickWeight$weight,
-    x2 = ChickWeight$Time
-  ),
   
   # Diamonds dataset (5000 observations)
   diamonds_df = diamonds %>% sample_n(5000) %>% 
     dplyr::select(x1 = carat, x2 = price) %>% as.data.frame()
   
-  
 )
 
-inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "linear", "poly", "akima")
-copula_types <- c("gaussian", "t")
+inv_cdf_types <- c("quantile_1", "poly")
+copula_types <- c("gaussian")
 
-results <- NULL
+results_er <- NULL
 iter = 0
 set.seed(42)
 for (tau in target_corr_kendall) {
@@ -1153,139 +1022,47 @@ for (tau in target_corr_kendall) {
           x1 = result$x1,
           x2 = result$x2
         )
-        results <- bind_rows(results, temp_result)
+        results_er <- bind_rows(results_er, temp_result)
       }
     }
   }
 }
 
 
-df_plot = results %>% filter(target_corr_kendall == 0, copula_type == "gaussian") %>%
-  filter(dataset %in% c("trees_df", "iris_df", "diamonds_df")) %>%
+df_plot = results_er %>% 
   mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
   mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) 
-df_label = df_plot %>% group_by(dataset, inv_cdf_type) %>% 
-  summarise(x = mean(range(x1)), y = 0, tvdist = round(calculate_tv_distance_empirical(x1, act_x1)$tv_distance, 3))
-df_plot %>%
+temp_plot = df_plot %>%
+  dplyr::select(-c(target_corr_kendall, copula_type, act_x1, act_x2))
+temp_plot2 = df_plot %>% filter(inv_cdf_type == "poly") %>%
+  dplyr::select(dataset, x1 = act_x1, x2 = act_x2) %>% 
+  mutate(inv_cdf_type = "Original", .before = 2)
+p1 = rbind(temp_plot, temp_plot2) %>%
+  mutate(inv_cdf_type = factor(inv_cdf_type, 
+                               levels = c("poly", "quantile_1", "Original"), ordered = T)) %>%
   ggplot() + theme_bw() +
-  geom_text(data = df_label, aes(x = x, y = y, label = tvdist)) +
-  geom_density(aes(x = x1), color = "blue") +
-  geom_density(aes(x = act_x1), color = "red") +
-  facet_wrap(inv_cdf_type~dataset, scales = "free", ncol = 3) +
-  labs(x = "", y = "")
+  geom_density(aes(x = x1, color = inv_cdf_type), alpha = 0.3, linewidth = 0.7) +
+  facet_wrap(~dataset, scales = "free", ncol = 3) +
+  labs(x = "", y = "", color = "Type", title = "x1") +
+  scale_color_manual(values = c("Original" = "black", "poly" = "blue", "quantile_1" = "red"))
+p2 = rbind(temp_plot, temp_plot2) %>%
+  mutate(inv_cdf_type = factor(inv_cdf_type, 
+                               levels = c("poly", "quantile_1", "Original"), ordered = T)) %>%
+  ggplot() + theme_bw() +
+  geom_density(aes(x = x2, color = inv_cdf_type), alpha = 0.3, linewidth = 0.7) +
+  facet_wrap(~dataset, scales = "free", ncol = 3) +
+  labs(x = "", y = "", color = "Type", title = "x2") +
+  scale_color_manual(values = c("Original" = "black", "poly" = "blue", "quantile_1" = "red"))
+grid.arrange(p1, p2)
 
-unique(results$inv_cdf_type)
-
-
-# Save the results
-write.csv(results, "results/final_eval_bootstrap_plot.csv", row.names = F)
 
 
 
 ################################################################################
-######################## SMOOTHNESS MEASURE ####################################
+################################ SMOOTHNESS VS TV ##############################
 ################################################################################
 
 
-
-
-
-# Function to calculate total variation
-total_variation <- function(f, x_range, n_points = 1000) {
-  x_vals <- seq(x_range[1], x_range[2], length.out = n_points)
-  f_vals <- sapply(x_vals, f)
-  v <- diff(f_vals)
-  
-  # Calculate the total variation as the sum of absolute differences
-  variation <- sd(v)
-  
-  return(variation)
-}
-
-# Example function
-f <- function(x) sin(x)
-
-# Quantify smoothness over the range [0, 2*pi]
-x_range <- c(0, 2 * pi)
-variation_measure <- total_variation(f, x_range)
-print(variation_measure)
-
-
-
-
-eval_smoothness_bootstrap <- function(target_corr_kendall,
-                                      sampled_x1, sampled_x2, inv_cdf_type) {
-  
-  n = length(sampled_x1)
-  
-  # Generate copula samples
-  if (copula_type == "gaussian") {
-    target_rho = sin(target_corr_kendall*pi/2) # Greiner's equality 
-    res <- gauss_copula_2(n, target_rho) 
-  } else if (copula_type == "t") {
-    target_rho = sin(target_corr_kendall*pi/2) # Greiner's equality 
-    res <- t_copula_2(n, target_rho)
-  } else if (copula_type == "clayton") {
-    res <- clayton_copula_2(n, target_corr_kendall)
-  } else if (copula_type == "gumbel") {
-    res <- gumbel_copula_2(n, target_corr_kendall)
-  } else if (copula_type == "amh") {
-    res <- amh_copula_2(n, target_corr_kendall)
-  } else {
-    stop("Unsupported copula type")
-  }
-  
-  if (all(is.na(res))){
-    results <- list(
-      tv_result_1 = list(NA),
-      tv_result_2 = list(NA),
-      ks_test_result_1 = list(NA),
-      ks_test_result_2 = list(NA),
-      cvm_test_result_1 = list(NA),
-      cvm_test_result_2 = list(NA),
-      corr_change_test = list(NA)
-    )
-    return(results)
-  }
-  
-  # Apply chosen inverse CDF
-  inv_cdf_d1 <- switch(inv_cdf_type,
-                       "quantile_1" = genCDFInv_quantile(sampled_x1, 1), # stepwise
-                       "quantile_4" = genCDFInv_quantile(sampled_x1, 4), # linear interpolation
-                       "quantile_7" = genCDFInv_quantile(sampled_x1, 7), # default
-                       "quantile_8" = genCDFInv_quantile(sampled_x1, 8), # median-unbiased
-                       "linear" = genCDFInv_linear(sampled_x1),
-                       "akima" = genCDFInv_akima(sampled_x1),
-                       "poly" = genCDFInv_poly(sampled_x1))
-  
-  inv_cdf_d2 <- switch(inv_cdf_type,
-                       "quantile_1" = genCDFInv_quantile(sampled_x2, 1), # stepwise
-                       "quantile_4" = genCDFInv_quantile(sampled_x2, 4), # linear interpolation
-                       "quantile_7" = genCDFInv_quantile(sampled_x2, 7), # default
-                       "quantile_8" = genCDFInv_quantile(sampled_x2, 8), # median-unbiased
-                       "linear" = genCDFInv_linear(sampled_x2),
-                       "akima" = genCDFInv_akima(sampled_x2),
-                       "poly" = genCDFInv_poly(sampled_x2))
-  
-  F1Inv <- Vectorize(inv_cdf_d1)
-  F2Inv <- Vectorize(inv_cdf_d2)
-  
-  s1 <- total_variation(F1Inv, c(0, 1))
-  s2 <- total_variation(F2Inv, c(0, 1))
-  
-  # Return all results
-  results <- list(
-    s1 = s1, s2 = s2
-  )
-  
-  return(results)
-}
-
-
-# PARAM SPACE
-target_corr_kendall <- seq(-1, 1, 0.1)
-# Define datasets with relevant numeric columns, sorted by number of observations
-# Define datasets with relevant numeric columns, sorted by number of observations
 datasets <- list(
   # Trees dataset (31 observations)
   trees_df = data.frame(
@@ -1344,301 +1121,28 @@ datasets <- list(
   # Diamonds dataset (5000 observations)
   diamonds_df = diamonds %>% sample_n(5000) %>% 
     dplyr::select(x1 = carat, x2 = price) %>% as.data.frame()
-  
-  
 )
 
-inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "linear", "poly", "akima")
 
-results_sm <- NULL
-iter = 0
-set.seed(42)
-for (tau in target_corr_kendall) {
-  for (inv_cdf_type in inv_cdf_types) {
-    for (dataset in names(datasets)) {
-      # Print all parameters in one line
-      print(paste("tau:", tau, "inv_cdf_type:", inv_cdf_type, "copula_type:", copula_type, "dataset:", dataset))
-      df = datasets[[dataset]]
-      result <- eval_smoothness_bootstrap(
-        target_corr_kendall = tau,
-        sampled_x1 = sample(df$x1, replace = T),
-        sampled_x2 = sample(df$x2, replace = T), 
-        inv_cdf_type = inv_cdf_type
-      )
-      print(iter)
-      iter = iter + 1
-      # Store results in a data frame
-      temp_result <- data.frame(
-        target_corr_kendall = tau,
-        dataset = dataset,
-        inv_cdf_type = inv_cdf_type,
-        s1 = result$s1,
-        s2 = result$s2
-      )
-      results_sm <- bind_rows(results_sm, temp_result)
-    }
-  }
-}
-
-write.csv(results_sm, "results/df_smooth.csv")
-
-
-df_plot = results_sm %>% 
+df_plot = results_bs_np %>% 
   filter(dataset %in% c("trees_df", "iris_df", "diamonds_df")) %>%
   mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
   mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) 
-df_plot %>%
-  ggplot() + theme_bw() +
-  geom_boxplot(aes(x = inv_cdf_type, y = s1)) +
-  facet_wrap(~dataset, scales = "free") +
-  labs(x = "", y = "") +
-  theme(axis.text.x = element_text(angle = 60, hjust = 1))
 
 
-
-
-
-################################################################################
-######################## TV + SMOOTHNESS MEASURE ###############################
-################################################################################
-
-
-
-
-
-# Function to calculate total variation
-total_variation <- function(f, x_range, n_points = 1000) {
-  x_vals <- seq(x_range[1], x_range[2], length.out = n_points)
-  f_vals <- sapply(x_vals, f)
-  v <- diff(f_vals)
-  
-  # Calculate the total variation as the sum of absolute differences
-  variation <- sd(v)
-  
-  return(variation)
-}
-calculate_tv_distance_empirical <- function(original_data, generated_data) {
-  # Create empirical CDFs for original and generated data
-  original_ecdf <- ecdf(original_data)
-  generated_ecdf <- ecdf(generated_data)
-  # Define the grid over which to calculate the distance
-  x_values <- sort(unique(c(original_data, generated_data)))
-  # Calculate the TV distance
-  tv_distance <- max(abs(original_ecdf(x_values) - generated_ecdf(x_values)))
-  list(tv_distance = tv_distance)
-}
-
-# Example function
-f <- function(x) sin(x^2)
-
-# Quantify smoothness over the range [0, 2*pi]
-x_range <- c(0, 2 * pi)
-variation_measure <- total_variation(f, x_range)
-print(variation_measure)
-
-
-
-
-eval_smoothness_tv_bootstrap <- function(target_corr_kendall,
-                                         sampled_x1, sampled_x2, 
-                                         act_x1, act_x2, 
-                                         copula_type, 
-                                      inv_cdf_type) {
-  
-  n = length(sampled_x1)
-  
-  # Generate copula samples
-  if (copula_type == "gaussian") {
-    target_rho = sin(target_corr_kendall*pi/2) # Greiner's equality 
-    res <- gauss_copula_2(n, target_rho) 
-  } else if (copula_type == "t") {
-    target_rho = sin(target_corr_kendall*pi/2) # Greiner's equality 
-    res <- t_copula_2(n, target_rho)
-  } else if (copula_type == "clayton") {
-    res <- clayton_copula_2(n, target_corr_kendall)
-  } else if (copula_type == "gumbel") {
-    res <- gumbel_copula_2(n, target_corr_kendall)
-  } else if (copula_type == "amh") {
-    res <- amh_copula_2(n, target_corr_kendall)
-  } else {
-    stop("Unsupported copula type")
-  }
-  
-  if (all(is.na(res))){
-    results <- list(
-      tv_result_1 = list(NA),
-      tv_result_2 = list(NA),
-      ks_test_result_1 = list(NA),
-      ks_test_result_2 = list(NA),
-      cvm_test_result_1 = list(NA),
-      cvm_test_result_2 = list(NA),
-      corr_change_test = list(NA)
-    )
-    return(results)
-  }
-  
-  # Apply chosen inverse CDF
-  inv_cdf_d1 <- switch(inv_cdf_type,
-                       "quantile_1" = genCDFInv_quantile(sampled_x1, 1), # stepwise
-                       "quantile_4" = genCDFInv_quantile(sampled_x1, 4), # linear interpolation
-                       "quantile_7" = genCDFInv_quantile(sampled_x1, 7), # default
-                       "quantile_8" = genCDFInv_quantile(sampled_x1, 8), # median-unbiased
-                       "linear" = genCDFInv_linear(sampled_x1),
-                       "akima" = genCDFInv_akima(sampled_x1),
-                       "poly" = genCDFInv_poly(sampled_x1))
-  
-  inv_cdf_d2 <- switch(inv_cdf_type,
-                       "quantile_1" = genCDFInv_quantile(sampled_x2, 1), # stepwise
-                       "quantile_4" = genCDFInv_quantile(sampled_x2, 4), # linear interpolation
-                       "quantile_7" = genCDFInv_quantile(sampled_x2, 7), # default
-                       "quantile_8" = genCDFInv_quantile(sampled_x2, 8), # median-unbiased
-                       "linear" = genCDFInv_linear(sampled_x2),
-                       "akima" = genCDFInv_akima(sampled_x2),
-                       "poly" = genCDFInv_poly(sampled_x2))
-  
-  F1Inv <- Vectorize(inv_cdf_d1)
-  F2Inv <- Vectorize(inv_cdf_d2)
-  
-  x1 <- F1Inv(res[,1])
-  x2 <- F2Inv(res[,2])
-  
-  s1 <- total_variation(F1Inv, c(0, 1)) 
-  s2 <- total_variation(F2Inv, c(0, 1))
-  
-  # Return all results
-  results <- list(
-    s1 = s1, s2 = s2,
-    tv1 = calculate_tv_distance_empirical(x1, act_x1)$tv_distance, 
-    tv2 = calculate_tv_distance_empirical(x2, act_x2)$tv_distance
-  )
-  
-  return(results)
-}
-
-
-# PARAM SPACE
-target_corr_kendall <- seq(-1, 1, 0.1)
-# Define datasets with relevant numeric columns, sorted by number of observations
-datasets <- list(
-  # Trees dataset (31 observations)
-  trees_df = data.frame(
-    x1 = trees$Girth,
-    x2 = trees$Height
-  ),
-  
-  # Mtcars dataset (32 observations)
-  mtcars_df = data.frame(
-    x1 = mtcars$mpg,
-    x2 = mtcars$hp
-  ),
-  
-  # Swiss dataset (47 observations)
-  swiss_df = data.frame(
-    x1 = swiss$Fertility,
-    x2 = swiss$Agriculture
-  ),
-  
-  # Rock dataset (48 observations)
-  rock_df = data.frame(
-    x1 = rock$area,
-    x2 = rock$peri
-  ),
-  
-  # USArrests dataset (50 observations)
-  USArrests_df = data.frame(
-    x1 = USArrests$Murder,
-    x2 = USArrests$Assault
-  ),
-  
-  # Iris dataset (150 observations)
-  iris_df = data.frame(
-    x1 = iris$Sepal.Length,
-    x2 = iris$Sepal.Width
-  ),
-  
-  # Airquality dataset (111 observations after removing NAs)
-  airquality_df = data.frame(
-    x1 = na.omit(airquality)$Ozone,
-    x2 = na.omit(airquality)$Wind
-  ),
-  
-  # Faithful dataset (272 observations)
-  faithful_df = data.frame(
-    x1 = faithful$eruptions,
-    x2 = faithful$waiting
-  ),
-  
-  # ChickWeight dataset (578 observations)
-  ChickWeight_df = data.frame(
-    x1 = ChickWeight$weight,
-    x2 = ChickWeight$Time
-  ),
-  
-  # Diamonds dataset (5000 observations)
-  diamonds_df = diamonds %>% sample_n(5000) %>% 
-    dplyr::select(x1 = carat, x2 = price) %>% as.data.frame()
-  
-  
-)
-
-inv_cdf_types <- c("quantile_1", "quantile_4", "quantile_7", "quantile_8", "linear", "poly", "akima")
-
-
-results_smt <- NULL
-iter = 0
-set.seed(42)
-for (tau in target_corr_kendall) {
-  for (inv_cdf_type in inv_cdf_types) {
-    for (dataset in names(datasets)) {
-      # Print all parameters in one line
-      print(paste("tau:", tau, "inv_cdf_type:", inv_cdf_type, "dataset:", dataset))
-      df = datasets[[dataset]]
-      results <- eval_smoothness_tv_bootstrap(
-        target_corr_kendall = tau,
-        sampled_x1 = sample(df$x1, replace = T),
-        sampled_x2 = sample(df$x2, replace = T), 
-        act_x1 = df$x1,
-        act_x2 = df$x2, 
-        copula_type = "gaussian",
-        inv_cdf_type = inv_cdf_type
-      )
-      print(iter)
-      iter = iter + 1
-      # Store results in a data frame
-      temp_result <- data.frame(
-        target_corr_kendall = tau,
-        dataset = dataset,
-        inv_cdf_type = inv_cdf_type,
-        s1 = results$s1,
-        s2 = results$s2,
-        tv1 = results$tv1,
-        tv2 = results$tv2
-      )
-      results_smt <- bind_rows(results_smt, temp_result)
-    }
-  }
-}
-
-write.csv(results_smt, "results/df_smooth_tv.csv")
-
-df_plot = results_smt %>% 
-  filter(dataset %in% c("trees_df", "iris_df", "diamonds_df"),
-         inv_cdf_type != "linear") %>%
-  mutate(dataset= str_c(dataset, " (", lapply(datasets[dataset], nrow), ")")) %>%
-  mutate(dataset = reorder(dataset, dataset, FUN = function(x) nrow(datasets[[str_split(x, " ", simplify = T)[1]]]))) 
 P1 <- df_plot %>%
   ggplot() + theme_bw() +
-  geom_boxplot(aes(x = inv_cdf_type, y = s1)) +
+  geom_boxplot(aes(x = inv_cdf_type, y = smoothness_1)) +
   facet_wrap(~dataset, scales = "free") +
   labs(x = "", y = "Smoothness") +
   theme(axis.text.x = element_text(angle = 60, hjust = 1))
 P2 <- df_plot %>%
   ggplot() + theme_bw() +
-  geom_boxplot(aes(x = inv_cdf_type, y = tv1)) +
+  geom_boxplot(aes(x = inv_cdf_type, y = tv_val_1)) +
   facet_wrap(~dataset, scales = "free") +
   labs(x = "", y = "TV") +
   theme(axis.text.x = element_text(angle = 60, hjust = 1))
-grid.arrange(P1, P2)
+grid.arrange(P2, P1)
 
 
 lambda = 1
@@ -1663,5 +1167,7 @@ df_plot1 %>%
 
 
 
-
+d1 = data.frame(x = rep(c("a", "b"), 5), y = 1:10)
+d2 = data.frame(x = rep(c("b", "c"), 5), z = 1:10)
+inner_join(d1, d2)
 
