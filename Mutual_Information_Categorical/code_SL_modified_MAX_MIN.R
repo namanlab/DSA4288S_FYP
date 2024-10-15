@@ -123,8 +123,8 @@ simul_anneal <- function(initial_table, obj, gen_fn, tot_sum, max_n = 5000, temp
       diff <- -cand_eval + curr_eval
     }
 
-    t <- temp / (n + 1)
-    metropolis <- exp(diff / t)
+    temp <- 0.9*temp # / (n + 1)
+    metropolis <- exp(diff / temp)
     if (diff > 0 || runif(1) < metropolis) {
       curr <- cand
       curr_eval <- cand_eval

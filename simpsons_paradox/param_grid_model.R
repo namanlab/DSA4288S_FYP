@@ -381,6 +381,7 @@ res = modify_data(x, y, z, t, sd_x = 0.07, sd_y = 0.07, lambda4 = 5)
 
 
 #### Plot outcome against the stanard deviation of variance:
+# Plot 1:Actual densities
 sdi_vec = seq(0, 0.2, 0.04)
 pl <- list()
 tvl = rep(0, length(sdi_vec))
@@ -402,6 +403,8 @@ for (sdi in sdi_vec){
   i = i + 1
 }
 grid.arrange(grobs = pl, nrow = 2)
+
+# Plot 2: The Tradeoff
 sdi_vec = seq(0, 0.5, 0.01)
 tvl = rep(0, length(sdi_vec))
 cors = rep(0, length(sdi_vec))
@@ -432,10 +435,46 @@ data.frame(sd = sdi_vec, tv = tvl, cor = cors) %>%
     legend.position = "bottom"
   )
 
+## Plot 3: Resulst from optimal grid partition
+set.seed(123)
+n <- 300
+z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
+x <- rnorm(n, 10, sd = 5) + 5*rbeta(n, 5, 3)
+y <- 2*x + rnorm(n, 5, sd = 4)
+t = c(-0.8, -0.8, -0.8) 
+res = modify_data(x, y, z, t, sd_x = 0.05, sd_y = 0.05, lambda4 = 5)
+tv_final = calculate_tv_distance_empirical(x, res$x_optimized) +
+  calculate_tv_distance_empirical(y, res$y_optimized)
+p1 <-  ggplot(data.frame(x = res$x_optimized, y = res$y_optimized, z = res$z)) +
+  geom_point(aes(x = x, y = y, color = z)) +
+  theme_bw() + guides(color = "none") + theme(plot.title = element_text(hjust = 0.5)) +
+  labs(title = str_c("Initial Correlation: ", round(cor(x, y), 3), 
+                     "\nOptimal Assignment: (1, 1), (2, 2), (3, 3)"), 
+       caption = str_c("Target Indivudal Correlations: (-0.8, -0.8, -0.8)\nOverall Correlation: ", 
+                       round(cor(res$x_optimized, res$y_optimized), 3), 
+                       "\nTV Distance: ", round(tv_final, 3)))
+n <- 300
+z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
+x <- rnorm(n, 10, sd = 5) + 5*rbeta(n, 5, 3)
+y <- -2*x + rnorm(n, 5, sd = 4)
+t = c(0.8, 0.8, 0.8) 
+res = modify_data(x, y, z, t, sd_x = 0.05, sd_y = 0.05, lambda4 = 5)
+tv_final = calculate_tv_distance_empirical(x, res$x_optimized) +
+  calculate_tv_distance_empirical(y, res$y_optimized)
+p2 <-  ggplot(data.frame(x = res$x_optimized, y = res$y_optimized, z = res$z)) +
+  geom_point(aes(x = x, y = y, color = z)) +
+  theme_bw() + guides(color = "none") + theme(plot.title = element_text(hjust = 0.5)) +
+  labs(title = str_c("Initial Correlation: ", round(cor(x, y), 3), 
+                     "\nOptimal Assignment: (3, 1), (2, 2), (1, 3)"), 
+       caption = str_c("Target Indivudal Correlations: (0.8, 0.8, 0.8)\nOverall Correlation: ", 
+                       round(cor(res$x_optimized, res$y_optimized), 3), 
+                       "\nTV Distance: ", round(tv_final, 3)))
+grid.arrange(p1, p2, nrow = 1)
 
 
 
-## Standrad deviatyion of gaussian noise vs density plot and TV:
+
+# Possituve corr
 set.seed(123)
 n <- 300
 z <- sample(c("A", "B", "C"), prob = c(0.3, 0.4, 0.3), size = n, replace = TRUE)
@@ -446,6 +485,7 @@ res = modify_data(x, y, z, t, sd_x = 0.07, sd_y = 0.07, lambda4 = 5)
 cor(res$y_original, res$x_original)
 cor(res$y_transformed, res$x_transformed)
 cor(res$y_optimized, res$x_optimized)
+
 
 # overall negative corr, figures out :)
 set.seed(123)

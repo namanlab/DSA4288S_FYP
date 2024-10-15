@@ -472,7 +472,7 @@ for (n_val in n_range){
 
 
 # Save the results
-write.csv(results_sim, "results/final/sim.csv")
+write.csv(results_sim, "final_results/sim.csv")
 
 
 ################################ AGAINST COPULA ################################ 
@@ -669,7 +669,7 @@ for (tau in target_corr_kendall) {
 
 
 # Save the results
-write.csv(results_bs_np, "results/final/bs_np.csv", row.names = F)
+write.csv(results_bs_np, "final_results/bs_np.csv", row.names = F)
 
 
 
@@ -729,7 +729,7 @@ for (tau in target_corr_kendall) {
 
 
 # Save the results
-write.csv(results_bs_p , "results/final/bs_p.csv", row.names = F)
+write.csv(results_bs_p , "final_results/bs_p.csv", row.names = F)
 
 
 ################################ Visualizations ################################
