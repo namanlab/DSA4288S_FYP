@@ -55,97 +55,6 @@ log_odds_weighted <- function(mat) {
 }
 
 
-############################# Relation between log odds fns #############################
-
-# function to generate a random matrix
-generate_random_mat <- function(n, m, min_val = 1, max_val = 100, seed = NULL) {
-  if (!is.null(seed)) set.seed(seed)  # Set seed for reproducibility
-  matrix(sample(min_val:max_val, n * m, replace = TRUE), ncol = m, byrow = TRUE)
-}
-
-iterations <- 1000
-results <- data.frame(iter = integer(), m = integer(), 
-                      log_odds_dc = double(), log_odds_weighted = double())
-
-set.seed(123)
-for (i in 1:iterations) {
-  m <- sample(3:10, 1)  # not 2*2 because 2*2 will be smae values
-  mat <- generate_random_mat(m, m)  
-  log_dc <- log_odds_dc(mat) 
-  log_weighted <- log_odds_weighted(mat)
-  results <- rbind(results, data.frame(iter = i, m = m, log_odds_dc = log_dc, log_odds_weighted = log_weighted))
-}
-ggplot(results, aes(x = log_odds_dc, y = log_odds_weighted)) +
-  geom_point(aes(color = factor(m)), alpha = 0.7, size = 2) +
-  labs(
-    title = "Comparison of Simple and Weighted Log-Odds Ratios",
-    x = "Log-Odds (Simple)",
-    y = "Log-Odds (Weighted)",
-    color = "Matrix Size (m)"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
-    legend.position = "right"
-  ) +
-  scale_colour_viridis_d() + geom_smooth()
-
-
-# Does augmentation/strengtheing diagonals affect association as intended?
-
-augment_matrix_random_block <- function(table, delta) {
-  nrows <- nrow(table)
-  ncols <- ncol(table)
-  iters <- 0
-  repeat {
-    iters <- iters + 1
-    RR <- sort(sample(1:nrows, 2))
-    CC <- sort(sample(1:ncols, 2))
-    if (delta < 0 && table[RR[1], CC[1]] > 0 && table[RR[2], CC[2]] > 0) break
-    if (delta > 0 && table[RR[1], CC[2]] > 0 && table[RR[2], CC[1]] > 0) break
-    if (iters > 100){
-      delta <- 0
-      break
-      }
-  }
-  table[RR[1], CC[1]] <- table[RR[1], CC[1]] + delta
-  table[RR[2], CC[2]] <- table[RR[2], CC[2]] + delta
-  table[RR[1], CC[2]] <- table[RR[1], CC[2]] - delta
-  table[RR[2], CC[1]] <- table[RR[2], CC[1]] - delta
-  return(table)
-}
-set.seed(42)
-iterations <- 300
-results <- data.frame(iter = integer(), dim_mat = integer(),
-                      log_odds_dc = double(), log_odds_weighted = double())
-dimensions_exp <- c(2, 3, 7, 12)
-for (dim_c in dimensions_exp){
-  sample_mat = generate_random_mat(dim_c, dim_c)
-  for (i in 1:iterations) {
-    sample_mat <<- augment_matrix_random_block(sample_mat, 1)
-    log_dc <- log_odds_dc(sample_mat) 
-    log_weighted <- log_odds_weighted(sample_mat)
-    results <- rbind(results, data.frame(iter = i, dim_mat = dim_c, log_odds_dc = log_dc, log_odds_weighted = log_weighted))
-  }
-}
-plot_dimension <- function(dim) {
-  results %>% filter(dim_mat == dim) %>%
-    pivot_longer(log_odds_dc:log_odds_weighted, names_to = "metric", values_to = "log_odds") %>%
-    ggplot(aes(x = iter, y = log_odds)) +
-    geom_line() + labs(title = paste("Dimension:", dim), x = "Iteration", y = "Log-Odds") +
-    facet_wrap(~metric, scales = "free_y") + theme_minimal() +
-    theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
-}
-
-plots <- lapply(dimensions_exp, plot_dimension)
-grid.arrange(grobs = plots, ncol = 2)
-
-
-
-
-
-
-# Nope, so better off just using log_odds_nc
 
 
 
@@ -200,7 +109,10 @@ augment_matrix_random_block <- function(table, delta) {
     CC <- sort(sample(1:ncols, 2))
     if (delta < 0 && table[RR[1], CC[1]] > 0 && table[RR[2], CC[2]] > 0) break
     if (delta > 0 && table[RR[1], CC[2]] > 0 && table[RR[2], CC[1]] > 0) break
-    if (iters > 100) delta <- 0
+    if (iters > 100) {
+      delta <- 0
+      break
+    }
   }
   table[RR[1], CC[1]] <- table[RR[1], CC[1]] + delta
   table[RR[2], CC[2]] <- table[RR[2], CC[2]] + delta
@@ -264,7 +176,6 @@ adjust_matrices <- function(matrices,
         if (target > 0){return(1000*exp(-cur_log_odds))}
         else {return(-margin - cur_log_odds)}
       })
-      print(selection_probs)
       if (all(is.infinite(selection_probs))) {selection_probs <- rep(0, length(selection_probs))}
       selection_probs <- softmax(selection_probs)  # Normalize to softmax probabilities
       idx <- sample(1:length(curr), 1, prob = selection_probs)
@@ -299,7 +210,6 @@ adjust_matrices <- function(matrices,
         if (target < 0){return(1000*exp(cur_log_odds))}
         else {return(cur_log_odds - margin)}
       })
-      print(selection_probs)
       if (all(is.infinite(selection_probs))) {selection_probs <- rep(0, length(selection_probs))}
       selection_probs <- softmax(selection_probs)  # Normalize to softmax probabilities
       idx <- sample(1:length(curr), 1, prob = selection_probs)
@@ -318,14 +228,13 @@ adjust_matrices <- function(matrices,
       if (cur_log_odds < -margin && target < 0){CHECK_F = 1} 
       if (cur_log_odds > margin && target > 0){CHECK_F = 1} 
       # Metropolis criteria for acceptance and constraints on log-odds limits
-      if ( runif(1) < metropolis && CHECK_F == 1) {
+      if (runif(1) < metropolis && CHECK_F == 1) {
         curr <- new_matrices
         curr_eval_sum <- new_eval_sum
       }
       history <- rbind(history, data.frame(iteration = n + max_n, overall_log_odds = curr_eval_sum))
     }
   }
-  
   # Return the final matrices and log odds history
   return(list(curr, curr_eval_sum, history))
 }
@@ -387,10 +296,10 @@ matrices <- list(
   tg = matrix(c(22, 24, 351, 317, 11, 33), ncol = 3, byrow = TRUE)
 )
 result <- adjust_matrices(matrices, 
-                          manual_vec = c(-1, -1, -1, -1, -1, -1, -1), 
+                          manual_vec = c(-1, -1, -1, 1, -1, -1, -1), 
                           target_overall = +1, 
                           margin = 0.1,  margin_overall = 0.1,
-                          max_n = 2000, max_n_overall = 2000)
+                          max_n = 2000, max_n_overall = 1000)
 plot_log_odds(matrices, result, names(matrices))
 result[[3]] %>%
   ggplot(aes(x = iteration, y = overall_log_odds)) +
@@ -442,7 +351,7 @@ matrices <- generate_random_matrices(p = 8, n = 4, m = 4)
 result <- adjust_matrices(matrices, 
                           manual_vec = c(-1, -1, -1, -1, -1, -1, -1, -1), 
                           target_overall = +1, 
-                          margin = 0.1,  margin_overall = 0.1,
+                          margin = 0.05,  margin_overall = 0.1,
                           max_n = 2000, max_n_overall = 1000)
 plot_log_odds(matrices, result, names(matrices))
 result[[3]] %>%
