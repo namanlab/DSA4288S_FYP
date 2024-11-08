@@ -1,0 +1,15 @@
+MCMCpack
+stringr
+GGally
+tidyverse
+MASS
+mvtnorm
+akima
+actuar
+copula
+goftest
+gridExtra
+ggExtra
+clue
+genodds
+DescTools

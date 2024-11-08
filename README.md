@@ -22,6 +22,7 @@ The project is organized as follows:
 ```plaintext
 .
 ├── README.md
+├── requirements.txt
 ├── correlation_continuous
 │   ├── final_eval.R
 │   ├── final_results
@@ -108,6 +109,52 @@ This module focuses on creating Simpson’s Paradox with categorical variables. 
 - Final Results Folders: Each module contains a final_results folder where images and plots summarizing the experimental results are stored.
 
 - Old Code: Each module has an old subdirectory containing legacy code and preliminary experiment results. These may serve as references for understanding the evolution of methods used in this project.  
+
+
+## Installation Guide
+
+To run this project, you’ll need to install several R packages listed in `requirements.txt`. Follow the steps below to set up the required packages:
+
+**Prerequisites**
+
+Ensure you have R installed. You can download R from CRAN.
+
+Installing Packages
+1. Save the Package List: The packages required for this project are listed in requirements.txt.  
+2. Install Packages: Use the following code snippet in R to install all the packages listed in requirements.txt.
+
+```r
+packages <- readLines("requirements.txt")
+install.packages(packages)
+```
+
+
+This code will read the list of packages from `requirements.txt` and install any missing packages in your R environment.
+
+**Verifying Installation**
+
+After running the above commands, load the packages in your R session to confirm they are installed correctly:
+
+```r
+# Load packages
+library(MCMCpack)
+library(stringr)
+library(GGally)
+library(tidyverse)
+library(MASS)
+library(mvtnorm)
+library(akima)
+library(actuar)
+library(copula)
+library(goftest)
+library(gridExtra)
+library(ggExtra)
+library(clue)
+library(genodds)
+library(DescTools)
+```
+
+If there are no errors, you are ready to proceed with the project!
 
 ## Acknowledgments
 
